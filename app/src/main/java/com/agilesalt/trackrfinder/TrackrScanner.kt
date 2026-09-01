@@ -113,8 +113,10 @@ class TrackrScanner(context: Context) {
         ))
     }
 
+    enum class Mode { LOW_LATENCY, BALANCED, LOW_POWER }
+
     /** @param address pin the scan to one device (required for background scanning). */
-    fun start(address: String? = null, lowPower: Boolean = false): Boolean {
+    fun start(address: String? = null, scanMode: Mode = Mode.LOW_LATENCY): Boolean {
         val scanner = adapter?.bluetoothLeScanner ?: return false
         if (scanning) stop()
 
@@ -124,8 +126,13 @@ class TrackrScanner(context: Context) {
 
         val settings = ScanSettings.Builder()
             .setScanMode(
-                if (lowPower) ScanSettings.SCAN_MODE_LOW_POWER
-                else ScanSettings.SCAN_MODE_LOW_LATENCY
+                when (scanMode) {
+                    // LOW_POWER duty-cycles so sparsely that with the screen off
+                    // a tag could go unheard for minutes, delaying the alert.
+                    Mode.LOW_POWER -> ScanSettings.SCAN_MODE_LOW_POWER
+                    Mode.BALANCED -> ScanSettings.SCAN_MODE_BALANCED
+                    Mode.LOW_LATENCY -> ScanSettings.SCAN_MODE_LOW_LATENCY
+                }
             )
             .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
             .build()

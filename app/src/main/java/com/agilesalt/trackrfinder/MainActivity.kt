@@ -60,8 +60,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        // Leave the field clear for the service's filtered scan: an unfiltered
+        // scan yields nothing once the screen is off, but still counts against
+        // the per-app scan-start throttle and drains battery.
+        scanner.stop()
+    }
+
     override fun onResume() {
         super.onResume()
+        if (hasPermissions()) scanner.start()
         // If a watch is armed, restart it from a visible context. A service
         // restarted at boot may have been denied location; starting it while
         // the app is on screen restores that without needing the
@@ -173,7 +182,11 @@ class MainActivity : ComponentActivity() {
             // When the watched tracker goes quiet it drops out of the scan list
             // entirely -- which is exactly when its last known position matters.
             val w = watched
-            if (w != null && w !in sightings) {
+            val heardMillisAgo = minOf(
+                sightings[w]?.ageMillis ?: Long.MAX_VALUE,
+                if (lastSeenAt > 0) now - lastSeenAt else Long.MAX_VALUE,
+            )
+            if (w != null && heardMillisAgo > WatchService.IN_RANGE_WINDOW_MS) {
                 LastSeenPanel(
                     label = nicknames[w] ?: prefs.watchedName ?: w,
                     lastSeenAt = lastSeenAt,

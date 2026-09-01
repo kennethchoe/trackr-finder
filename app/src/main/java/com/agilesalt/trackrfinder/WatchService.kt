@@ -35,6 +35,12 @@ class WatchService : Service() {
     private var address: String? = null
     private var wasInRange = true
 
+    /**
+     * Guards against alerting for a tag that was already out of range when the
+     * watch was armed: without this, arming while away fires immediately.
+     */
+    private var seenSinceStart = false
+
     /** Nickname if the user set one, else whatever we stored at watch time. */
     private val label: String
         get() = address?.let { prefs.nickname(it) } ?: prefs.watchedName ?: "Tracker"
@@ -65,7 +71,7 @@ class WatchService : Service() {
         }
 
         startForeground(NOTIF_ONGOING, ongoingNotification("Watching $label", null))
-        scanner.start(address = address, lowPower = true)
+        scanner.start(address = address, scanMode = TrackrScanner.Mode.BALANCED)
         // onStartCommand runs again on re-arm and on system restart; without
         // this each call would stack another tick loop.
         handler.removeCallbacks(tick)
@@ -83,6 +89,7 @@ class WatchService : Service() {
                 if (sighting != null && sighting.ageMillis < IN_RANGE_WINDOW_MS) {
                     prefs.lastSeenAt = sighting.seenAt
                     recordLocation()
+                    seenSinceStart = true
                     if (!wasInRange) {
                         wasInRange = true
                         notificationManager.cancel(NOTIF_ALERT)
@@ -95,7 +102,7 @@ class WatchService : Service() {
                         ),
                     )
                 } else {
-                    if (wasInRange && prefs.lastSeenAt > 0) {
+                    if (wasInRange && seenSinceStart) {
                         wasInRange = false
                         notifyLeftBehind()
                     }
@@ -227,8 +234,14 @@ class WatchService : Service() {
         private const val CHANNEL_ALERT = "left_behind_v2"
         private const val NOTIF_ONGOING = 1
         private const val NOTIF_ALERT = 2
-        private const val TICK_MS = 10_000L
-        private const val IN_RANGE_WINDOW_MS = 90_000L
+        private const val TICK_MS = 5_000L
+
+        /**
+         * How long without hearing a tag before it counts as gone. Shared with
+         * the UI so both agree on what "out of range" means -- they previously
+         * used different sources and could disagree indefinitely.
+         */
+        const val IN_RANGE_WINDOW_MS = 45_000L
         private const val EXPIRE_MS = 300_000L
 
         fun start(context: Context) {
