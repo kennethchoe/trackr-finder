@@ -11,6 +11,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import kotlin.math.exp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -127,11 +128,15 @@ class TrackrScanner(context: Context) {
 
         val address = result.device.address
         val prev = _sightings.value[address]
-        // Blend into the previous value rather than replacing it, and carry
-        // firstSeen forward so the sort key stays stable across updates.
-        val smoothed = prev?.let {
-            it.smoothedRssi + Sighting.SMOOTHING * (result.rssi - it.smoothedRssi)
-        } ?: result.rssi.toFloat()
+        // Weight each reading by how long it has been since the last one, so a
+        // device advertising twice a second and one advertising every three
+        // seconds both settle at the same rate in wall-clock terms.
+        val smoothed = if (prev == null) result.rssi.toFloat() else {
+            val elapsed = (System.currentTimeMillis() - prev.seenAt).coerceAtLeast(1L)
+            val alpha = (1.0 - exp(-elapsed / Sighting.TIME_CONSTANT_MS))
+                .toFloat().coerceIn(0.02f, 1f)
+            prev.smoothedRssi + alpha * (result.rssi - prev.smoothedRssi)
+        }
 
         _sightings.value = _sightings.value + (address to Sighting(
             address = address,

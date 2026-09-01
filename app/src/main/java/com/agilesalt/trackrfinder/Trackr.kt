@@ -62,7 +62,7 @@ data class Sighting(
     val rssi: Int,
     val seenAt: Long = System.currentTimeMillis(),
     val matchReason: MatchReason = MatchReason.KNOWN_NAME,
-    /** Exponentially smoothed RSSI. Raw readings swing 5-10 dBm at rest. */
+    /** Time-smoothed RSSI. Raw readings swing 5-10 dBm at rest. */
     val smoothedRssi: Float = rssi.toFloat(),
     /** Used as a stable sort key so rows do not reshuffle as signal drifts. */
     val firstSeen: Long = seenAt,
@@ -93,11 +93,16 @@ data class Sighting(
         const val PATH_LOSS_EXPONENT = 2.5
 
         /**
-         * Weight given to each new reading. Applied per packet, and packets
-         * arrive ~25x/second, so 0.25 gave a time constant of ~0.2s -- no
-         * smoothing at all at human timescale. 0.05 settles over ~1-2s.
+         * Smoothing time constant. Deliberately expressed in time, not in
+         * packets: advertising rates differ by orders of magnitude between
+         * devices, so a fixed per-packet weight smooths a chatty device nicely
+         * while lagging a slow one by tens of seconds. A TrackR advertises
+         * roughly every 2s, so a per-packet weight of 0.05 took ~40s to settle.
+         *
+         * Deriving the weight from elapsed time instead gives every device the
+         * same perceived responsiveness regardless of how often it speaks.
          */
-        const val SMOOTHING = 0.05f
+        const val TIME_CONSTANT_MS = 2_500.0
 
     }
 }
