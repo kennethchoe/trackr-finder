@@ -1,0 +1,32 @@
+<!--
+  The same beacon mark as the in-app header avatar: a source dot with two
+  arcs radiating from it. Kept inside the adaptive-icon safe circle
+  (radius 33 of 108 from centre) so no launcher mask clips it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- source dot -->
+    <path
+        android:fillColor="#E9DDFF"
+        android:pathData="M54,64m-6,0a6,6 0,1 1,12 0a6,6 0,1 1,-12 0" />
+
+    <!-- inner arc -->
+    <path
+        android:strokeColor="#E9DDFF"
+        android:strokeWidth="5.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M38.6,56.8 A17,17 0,0 1,69.4 56.8" />
+
+    <!-- outer arc -->
+    <path
+        android:strokeColor="#E9DDFF"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M28.6,52.2 A28,28 0,0 1,79.4 52.2" />
+</vector>
