@@ -307,7 +307,12 @@ class MainActivity : ComponentActivity() {
             val others = all.filterNot(::isTag).sortedBy { it.firstSeen }
             if (list.isEmpty()) {
                 Spacer(Modifier.height(24.dp))
-                Text("Nothing yet.", style = MaterialTheme.typography.bodyLarge)
+                val watchedLabel = watched?.let { nicknames[it] ?: prefs.watchedName }
+                Text(
+                    if (watchedLabel != null) "Looking for $watchedLabel…"
+                    else "Nothing yet.",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
                 Spacer(Modifier.height(8.dp))
                 Text(
                     if (showAll)
