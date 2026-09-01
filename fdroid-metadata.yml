@@ -4,13 +4,13 @@ Categories:
   - Connectivity
 License: MIT
 AuthorName: Kyoungsik Choe
-SourceCode: https://github.com/REPLACE_ME/trackr-finder
-IssueTracker: https://github.com/REPLACE_ME/trackr-finder/issues
+SourceCode: https://github.com/kennethchoe/trackr-finder
+IssueTracker: https://github.com/kennethchoe/trackr-finder/issues
 
 AutoName: TrackR Finder
 
 RepoType: git
-Repo: https://github.com/REPLACE_ME/trackr-finder.git
+Repo: https://github.com/kennethchoe/trackr-finder.git
 
 Builds:
   - versionName: '1.0'

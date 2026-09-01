@@ -70,6 +70,11 @@ MAC address — which is why you must pick a device before it can watch it.
 `location` type may access location without that permission, provided the
 service starts while the app is visible. The app is built that way deliberately.
 
+## Install
+
+No release APK is published yet. Build it yourself (below), or wait for the
+F-Droid listing.
+
 ## Build
 
 ```sh
