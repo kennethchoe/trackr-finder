@@ -8,6 +8,8 @@ import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +36,33 @@ class TrackrScanner(context: Context) {
     val sightings: StateFlow<Map<String, Sighting>> = _sightings.asStateFlow()
 
     private var scanning = false
+    private var activeAddress: String? = null
+    private var activeMode: Mode? = null
+
+    /**
+     * Android permits five scan starts per 30 seconds, then silently refuses
+     * registration -- the rejection happens client-side, so ScanCallback never
+     * even sees it. Stopping on every app switch burned through that budget and
+     * left the scanner dead with no error anywhere except logcat. So a stop is
+     * deferred: a quick switch away and back cancels it and keeps the existing
+     * registration rather than spending another start.
+     */
+    private val handler = Handler(Looper.getMainLooper())
+    private val deferredStop = Runnable { stopNow() }
+
+    /** Set when a scan is registered but no advertisement has arrived since. */
+    private var lastResultAt = 0L
+    private var startedAt = 0L
+
+    /**
+     * True when we appear to be registered but nothing is coming in -- the
+     * observable symptom of being throttled, since the refusal is not reported.
+     */
+    val looksThrottled: Boolean
+        get() = scanning &&
+            startedAt > 0 &&
+            System.currentTimeMillis() - startedAt > THROTTLE_SUSPECT_MS &&
+            (lastResultAt == 0L || System.currentTimeMillis() - lastResultAt > THROTTLE_SUSPECT_MS)
 
     /**
      * Display order, assigned once per address and never reset. Survives
@@ -74,6 +103,7 @@ class TrackrScanner(context: Context) {
     }
 
     private fun record(result: ScanResult) {
+        lastResultAt = System.currentTimeMillis()
         val record = result.scanRecord
         // device.name requires BLUETOOTH_CONNECT on some builds and can be null
         // before a connection; the advertised name in the scan record does not.
@@ -118,7 +148,14 @@ class TrackrScanner(context: Context) {
     /** @param address pin the scan to one device (required for background scanning). */
     fun start(address: String? = null, scanMode: Mode = Mode.LOW_LATENCY): Boolean {
         val scanner = adapter?.bluetoothLeScanner ?: return false
-        if (scanning) stop()
+
+        handler.removeCallbacks(deferredStop)
+
+        // Already registered with these exact parameters: reuse it rather than
+        // spending another start against the throttle budget.
+        if (scanning && activeAddress == address && activeMode == scanMode) return true
+
+        if (scanning) stopNow()
 
         val filters = address?.let {
             listOf(ScanFilter.Builder().setDeviceAddress(it).build())
@@ -140,6 +177,10 @@ class TrackrScanner(context: Context) {
         return try {
             scanner.startScan(filters, settings, callback)
             scanning = true
+            activeAddress = address
+            activeMode = scanMode
+            startedAt = System.currentTimeMillis()
+            lastResultAt = 0L
             true
         } catch (e: SecurityException) {
             Log.w(TAG, "missing scan permission", e)
@@ -147,7 +188,16 @@ class TrackrScanner(context: Context) {
         }
     }
 
-    fun stop() {
+    /** Stop after a grace period, so a brief app switch does not cycle the scan. */
+    fun stopSoon(delayMs: Long = GRACE_MS) {
+        handler.removeCallbacks(deferredStop)
+        handler.postDelayed(deferredStop, delayMs)
+    }
+
+    fun stop() = stopNow()
+
+    private fun stopNow() {
+        handler.removeCallbacks(deferredStop)
         if (!scanning) return
         try {
             adapter?.bluetoothLeScanner?.stopScan(callback)
@@ -155,6 +205,9 @@ class TrackrScanner(context: Context) {
             Log.w(TAG, "missing scan permission on stop", e)
         }
         scanning = false
+        activeAddress = null
+        activeMode = null
+        startedAt = 0L
     }
 
     /**
@@ -179,5 +232,13 @@ class TrackrScanner(context: Context) {
         if (kept.size != _sightings.value.size) _sightings.value = kept
     }
 
-    companion object { private const val TAG = "TrackrScanner" }
+    companion object {
+        private const val TAG = "TrackrScanner"
+
+        /** Keep a registration alive this long after a stop request. */
+        private const val GRACE_MS = 45_000L
+
+        /** Silence longer than this while "scanning" suggests throttling. */
+        private const val THROTTLE_SUSPECT_MS = 15_000L
+    }
 }

@@ -62,10 +62,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Leave the field clear for the service's filtered scan: an unfiltered
-        // scan yields nothing once the screen is off, but still counts against
-        // the per-app scan-start throttle and drains battery.
-        scanner.stop()
+        // Deferred, not immediate: switching away and back within the grace
+        // period keeps the existing registration instead of spending another
+        // scan start. Android refuses the sixth start in 30 seconds silently.
+        scanner.stopSoon()
     }
 
     override fun onResume() {
@@ -106,7 +106,10 @@ class MainActivity : ComponentActivity() {
         DisposableEffect(granted) {
             scanner.showAll = showAll
             if (granted) scanner.start()
-            onDispose { scanner.stop() }
+            // No stop here: the activity lifecycle owns that. Stopping on every
+            // recomposition of this effect cost a scan start on the way back,
+            // and Android only allows five per 30 seconds.
+            onDispose { }
         }
         LaunchedEffect(granted) {
             while (granted) {
@@ -133,6 +136,9 @@ class MainActivity : ComponentActivity() {
                 status = when {
                     !scanner.bluetoothEnabled -> "Bluetooth is off"
                     !granted -> "Permissions needed"
+                    // Android refuses the start silently, so without this the
+                    // header would claim to be scanning while nothing runs.
+                    scanner.looksThrottled -> "Android is throttling scans — hold on"
                     found == 0 -> "Scanning…"
                     found == 1 -> "Scanning · 1 nearby"
                     else -> "Scanning · $found nearby"
