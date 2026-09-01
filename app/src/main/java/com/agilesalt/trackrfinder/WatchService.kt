@@ -79,11 +79,22 @@ class WatchService : Service() {
             notifyLeftBehind()
             return START_NOT_STICKY
         }
-        address = prefs.watchedAddress
-        if (address == null || !prefs.watchEnabled) {
+        val next = prefs.watchedAddress
+        if (next == null || !prefs.watchEnabled) {
             stopSelf()
             return START_NOT_STICKY
         }
+        if (next != address) {
+            // A different tag: nothing learned about the previous one carries
+            // over. Without this, switching from a tag that was in range to one
+            // that is not would fire an alert immediately, because the service
+            // still believed it had been in contact.
+            wasInRange = true
+            seenSinceStart = false
+            confirmingSince = 0L
+            notificationManager.cancel(NOTIF_ALERT)
+        }
+        address = next
 
         // "location" is a while-in-use foreground service type, which Android
         // forbids starting from a background context such as BOOT_COMPLETED --

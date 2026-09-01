@@ -373,7 +373,24 @@ class MainActivity : ComponentActivity() {
                                 prefs.watchEnabled = false
                                 alertsOn = false
                                 WatchService.stop(this@MainActivity)
+                                status = null
                             } else {
+                                val previous = prefs.watchedAddress
+                                val replaced = if (previous != null && previous != s.address) {
+                                    nicknames[previous] ?: prefs.watchedName
+                                } else null
+
+                                if (previous != s.address) {
+                                    // The stored sighting belongs to the old tag;
+                                    // carrying it over would attribute one tag's
+                                    // last known position to another.
+                                    prefs.lastSeenAt = 0L
+                                    prefs.lastLat = Double.NaN
+                                    prefs.lastLon = Double.NaN
+                                    lastSeenAt = 0L
+                                    lastLoc = null
+                                }
+
                                 prefs.watchedAddress = s.address
                                 prefs.watchedName = nicknames[s.address] ?: s.name
                                 prefs.watchedAdvertisedName = s.name
@@ -381,8 +398,15 @@ class MainActivity : ComponentActivity() {
                                 watched = s.address
                                 alertsOn = true
                                 WatchService.start(this@MainActivity, withLocation = true)
+
+                                // Only one tag can be watched. Say so plainly:
+                                // silently disarming the previous one would let
+                                // the user rely on an alert that will not come.
+                                status = replaced?.let {
+                                    "Watching ${nicknames[s.address] ?: s.name}. " +
+                                        "$it is no longer watched."
+                                }
                             }
-                            status = null
                         },
                     )
                 }
