@@ -1,0 +1,19 @@
+# Build output
+.gradle/
+build/
+app/build/
+
+# Local machine config (contains absolute SDK paths)
+local.properties
+
+# Signing material -- NEVER commit these.
+# Leaking the upload key lets anyone publish updates under your identity.
+*.jks
+*.keystore
+keystore.properties
+key.properties
+
+# IDE
+*.iml
+.idea/
+.DS_Store
