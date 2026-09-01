@@ -266,6 +266,10 @@ class MainActivity : ComponentActivity() {
                         battery = batteries[s.address],
                         isWatched = watched == s.address,
                         onRename = { renaming = s },
+                        onTestAlert = {
+                            WatchService.testAlert(this@MainActivity)
+                            status = "Test alert sent — lock the phone and try again"
+                        },
                         isRinging = ringing == s.address,
                         now = now,
                         onRing = { doRing(s) },
@@ -522,6 +526,7 @@ private fun DeviceCard(
     onStopRing: () -> Unit,
     onWatch: () -> Unit,
     onRename: () -> Unit,
+    onTestAlert: () -> Unit,
 ) {
     val renamed = label != sighting.name
     Card {
@@ -607,6 +612,12 @@ private fun DeviceCard(
                 horizontalArrangement = Arrangement.End,
                 modifier = Modifier.fillMaxWidth(),
             ) {
+                // Only useful while armed, and worth having: whether an alert is
+                // actually noticeable when the phone is locked is not something
+                // you want to discover by losing your keys.
+                if (isWatched) {
+                    TextButton(onClick = onTestAlert) { Text("Test alert", maxLines = 1) }
+                }
                 TextButton(onClick = onRename) { Text("Rename", maxLines = 1) }
             }
         }

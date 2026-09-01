@@ -9,6 +9,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Build
@@ -49,6 +51,11 @@ class WatchService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             stopSelf()
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_TEST) {
+            address = prefs.watchedAddress
+            notifyLeftBehind()
             return START_NOT_STICKY
         }
         address = prefs.watchedAddress
@@ -133,6 +140,8 @@ class WatchService : Service() {
             .setSmallIcon(android.R.drawable.stat_sys_warning)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)  // pre-Oreo path
             .setAutoCancel(true)
             .setContentIntent(openAppIntent())
             .build()
@@ -173,9 +182,34 @@ class WatchService : Service() {
         notificationManager.createNotificationChannel(
             NotificationChannel(CHANNEL_ONGOING, "Watching", NotificationManager.IMPORTANCE_LOW)
         )
-        notificationManager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ALERT, "Left behind", NotificationManager.IMPORTANCE_HIGH)
-        )
+        // Channel settings are fixed at creation; importance alone does not
+        // grant sound. Everything audible has to be spelled out here, not on
+        // the notification, where setPriority is ignored on Android 8+.
+        val alert = NotificationChannel(
+            CHANNEL_ALERT, "Left behind", NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = "Fires when a watched tag stops responding"
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 400, 200, 400, 200, 600)
+            enableLights(true)
+            // Alarm usage so it is audible with the ringer down: the whole
+            // point is to catch you walking away from your keys.
+            setSound(
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .build(),
+            )
+            // Show the tag name and coordinate on the lock screen, which is
+            // where this notification is actually read.
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        }
+        notificationManager.createNotificationChannel(alert)
+
+        // The v1 channel is silent and unfixable; remove it so it stops
+        // appearing under the app's notification settings.
+        runCatching { notificationManager.deleteNotificationChannel("left_behind") }
     }
 
     override fun onDestroy() {
@@ -186,8 +220,11 @@ class WatchService : Service() {
 
     companion object {
         const val ACTION_STOP = "com.agilesalt.trackrfinder.STOP"
+        const val ACTION_TEST = "com.agilesalt.trackrfinder.TEST"
         private const val CHANNEL_ONGOING = "watching"
-        private const val CHANNEL_ALERT = "left_behind"
+        // Bumped: channel settings are immutable once created, so the
+        // original silent channel had to be replaced outright.
+        private const val CHANNEL_ALERT = "left_behind_v2"
         private const val NOTIF_ONGOING = 1
         private const val NOTIF_ALERT = 2
         private const val TICK_MS = 10_000L
@@ -196,6 +233,13 @@ class WatchService : Service() {
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, WatchService::class.java))
+        }
+
+        /** Fire the left-behind alert immediately, to check it is noticeable. */
+        fun testAlert(context: Context) {
+            context.startService(
+                Intent(context, WatchService::class.java).setAction(ACTION_TEST)
+            )
         }
 
         fun stop(context: Context) {
