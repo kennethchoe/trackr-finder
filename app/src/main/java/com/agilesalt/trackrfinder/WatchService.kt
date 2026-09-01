@@ -12,11 +12,13 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.location.LocationManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
@@ -40,6 +42,9 @@ class WatchService : Service() {
      * watch was armed: without this, arming while away fires immediately.
      */
     private var seenSinceStart = false
+
+    /** Whether this service instance holds the location capability. */
+    private var locationAllowed = false
 
     /** Nickname if the user set one, else whatever we stored at watch time. */
     private val label: String
@@ -70,7 +75,16 @@ class WatchService : Service() {
             return START_NOT_STICKY
         }
 
-        startForeground(NOTIF_ONGOING, ongoingNotification("Watching $label", null))
+        // "location" is a while-in-use foreground service type, which Android
+        // forbids starting from a background context such as BOOT_COMPLETED --
+        // and it refuses the whole start, not just that capability. So at boot
+        // we claim only connectedDevice, which is enough to keep scanning, and
+        // upgrade to include location when the app is next opened.
+        locationAllowed = intent?.getBooleanExtra(EXTRA_WITH_LOCATION, false) ?: false
+        if (!enterForeground(locationAllowed)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         scanner.start(address = address, scanMode = TrackrScanner.Mode.BALANCED)
         // onStartCommand runs again on re-arm and on system restart; without
         // this each call would stack another tick loop.
@@ -118,6 +132,9 @@ class WatchService : Service() {
     }
 
     private fun recordLocation() {
+        // Without the location service type the platform will not hand us a fix
+        // anyway; skip rather than fail noisily every tick.
+        if (!locationAllowed) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED
         ) return
@@ -184,6 +201,22 @@ class WatchService : Service() {
     private val notificationManager: NotificationManager
         get() = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
+    /** @return false when the platform refuses the foreground start entirely. */
+    private fun enterForeground(withLocation: Boolean): Boolean = try {
+        val notification = ongoingNotification("Watching $label", null)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            if (withLocation) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            startForeground(NOTIF_ONGOING, notification, types)
+        } else {
+            startForeground(NOTIF_ONGOING, notification)
+        }
+        true
+    } catch (e: Exception) {
+        Log.w("WatchService", "foreground start refused (withLocation=$withLocation)", e)
+        false
+    }
+
     private fun createChannels() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         notificationManager.createNotificationChannel(
@@ -244,8 +277,18 @@ class WatchService : Service() {
         const val IN_RANGE_WINDOW_MS = 45_000L
         private const val EXPIRE_MS = 300_000L
 
-        fun start(context: Context) {
-            ContextCompat.startForegroundService(context, Intent(context, WatchService::class.java))
+        const val EXTRA_WITH_LOCATION = "with_location"
+
+        /**
+         * @param withLocation only from a visible app. Requesting the location
+         * service type from the background makes the platform refuse the start.
+         */
+        fun start(context: Context, withLocation: Boolean = false) {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, WatchService::class.java)
+                    .putExtra(EXTRA_WITH_LOCATION, withLocation),
+            )
         }
 
         /** Fire the left-behind alert immediately, to check it is noticeable. */

@@ -79,7 +79,10 @@ class MainActivity : ComponentActivity() {
         // the app is on screen restores that without needing the
         // ACCESS_BACKGROUND_LOCATION permission.
         if (prefs.watchedAddress != null) {
-            runCatching { WatchService.start(this) }
+            // Visible app, so the location service type is permitted here even
+            // though it was refused at boot. This is what restores the ability
+            // to record a coordinate after a restart.
+            runCatching { WatchService.start(this, withLocation = true) }
         }
     }
 
@@ -313,7 +316,7 @@ class MainActivity : ComponentActivity() {
                                 prefs.watchedAddress = s.address
                                 prefs.watchedName = nicknames[s.address] ?: s.name
                                 watched = s.address
-                                WatchService.start(this@MainActivity)
+                                WatchService.start(this@MainActivity, withLocation = true)
                                 status = null
                             }
                         },
