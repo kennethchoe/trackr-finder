@@ -6,8 +6,7 @@ License: MIT
 AuthorName: Kyoungsik Choe
 SourceCode: https://github.com/kennethchoe/trackr-finder
 IssueTracker: https://github.com/kennethchoe/trackr-finder/issues
-
-AutoName: TrackR Finder
+Changelog: https://github.com/kennethchoe/trackr-finder/releases
 
 RepoType: git
 Repo: https://github.com/kennethchoe/trackr-finder.git
