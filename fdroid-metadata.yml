@@ -1,0 +1,26 @@
+# Proposed F-Droid metadata. Submit as dev.kchoe.trackrfinder.yml via a merge
+# request to https://gitlab.com/fdroid/fdroiddata
+Categories:
+  - Connectivity
+License: MIT
+AuthorName: Kyoungsik Choe
+SourceCode: https://github.com/REPLACE_ME/trackr-finder
+IssueTracker: https://github.com/REPLACE_ME/trackr-finder/issues
+
+AutoName: TrackR Finder
+
+RepoType: git
+Repo: https://github.com/REPLACE_ME/trackr-finder.git
+
+Builds:
+  - versionName: '1.0'
+    versionCode: 1
+    commit: v1.0
+    subdir: app
+    gradle:
+      - yes
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: '1.0'
+CurrentVersionCode: 1

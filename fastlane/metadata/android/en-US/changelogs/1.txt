@@ -1,0 +1,4 @@
+First release.
+
+Scan for Bluetooth tags, ring them, read battery level, assign local
+nicknames, and optionally be alerted when you leave one behind.

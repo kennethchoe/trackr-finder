@@ -1,0 +1,33 @@
+TrackR shut down in 2021 and its app stopped working, but the hardware still
+functions perfectly. This app talks to it directly over Bluetooth Low Energy,
+with no cloud, no account, and no network access of any kind.
+
+The TrackR Pixel is not a proprietary device: it implements the Bluetooth SIG
+Find Me Profile, so ringing it is a single one-byte write to the standard
+Immediate Alert Service. That means this app is not TrackR-specific — it works
+with any Bluetooth tag implementing Immediate Alert, including many inexpensive
+"iTag" style trackers, and a surprising number of headphones and wearables.
+
+Features:
+
+* Live scan with a proximity bar and rough distance estimate
+* Ring a tag, and silence it again
+* Battery level, read while connected
+* Local nicknames per device, so identical tags are distinguishable
+* Optional leave-behind alert: watch one tag, get notified when it drops out of
+  range, and see where you last heard it
+
+Deliberate limitations, stated plainly:
+
+* Signal strength gives you hotter/colder, not a direction. Range is 10-30 m.
+* Once a tag is out of range it is gone. TrackR's crowd-sourced finding network
+  no longer exists and cannot be recreated. The recorded position is where YOUR
+  PHONE was when it last heard the tag, not where the tag is.
+* Tile, AirTag and Samsung SmartTag cannot be rung. Their alert commands are
+  authenticated against a key held by the owner's account.
+
+Location permission is used only to record where a tag was last heard, and
+nothing is ever transmitted off the device. The app requests no network
+permission at all.
+
+Not affiliated with, authorised by, or endorsed by TrackR Inc. or Adero.
