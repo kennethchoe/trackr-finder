@@ -59,6 +59,10 @@ class TrackrScanner(context: Context) {
      * True when we appear to be registered but nothing is coming in -- the
      * observable symptom of being throttled, since the refusal is not reported.
      */
+    /** How long the current scan has been registered, 0 when not scanning. */
+    val scanActiveMillis: Long
+        get() = if (scanning && startedAt > 0) System.currentTimeMillis() - startedAt else 0L
+
     val looksThrottled: Boolean
         get() = scanning &&
             startedAt > 0 &&

@@ -15,19 +15,28 @@ import android.util.Log
  * and MainActivity re-arms from the foreground to restore it.
  */
 class BootReceiver : BroadcastReceiver() {
+
+    private companion object { const val TAG = "BootReceiver" }
+
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED &&
             intent.action != Intent.ACTION_LOCKED_BOOT_COMPLETED
         ) return
 
-        if (Prefs(context).watchedAddress == null) return
+        if (Prefs(context).watchedAddress == null) {
+            Log.i(TAG, "boot: no watch armed, nothing to restart")
+            return
+        }
 
         try {
             WatchService.start(context)
+            // Logged on success too: without this there is no way to tell a
+            // working boot restart from one that never ran, since the service
+            // also gets re-armed whenever the app is opened.
+            Log.i(TAG, "boot: watch restart requested")
         } catch (e: Exception) {
             // Android 14+ can refuse a foreground service start from boot.
-            // Nothing useful to do here; opening the app re-arms it.
-            Log.w("BootReceiver", "could not restart watch at boot", e)
+            Log.w(TAG, "boot: could not restart watch", e)
         }
     }
 }

@@ -26,6 +26,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** Grace period after a scan starts before absence means anything. */
+private const val SCAN_SETTLE_MS = 8_000L
+
 class MainActivity : ComponentActivity() {
 
     private lateinit var scanner: TrackrScanner
@@ -192,7 +195,12 @@ class MainActivity : ComponentActivity() {
                 sightings[w]?.ageMillis ?: Long.MAX_VALUE,
                 if (lastSeenAt > 0) now - lastSeenAt else Long.MAX_VALUE,
             )
-            if (w != null && heardMillisAgo > WatchService.IN_RANGE_WINDOW_MS) {
+            // Do not cry "out of range" before the scan has had a chance to
+            // look. On a cold start the stored last-sighting is stale and the
+            // scanner has not found anything yet, which flashed the red panel
+            // for a second or two on a tag that was sitting right there.
+            val hadTimeToLook = scanner.scanActiveMillis > SCAN_SETTLE_MS
+            if (w != null && hadTimeToLook && heardMillisAgo > WatchService.IN_RANGE_WINDOW_MS) {
                 LastSeenPanel(
                     label = nicknames[w] ?: prefs.watchedName ?: w,
                     lastSeenAt = lastSeenAt,
