@@ -35,20 +35,36 @@ class MainActivity : ComponentActivity() {
     private lateinit var ringer: Ringer
     private lateinit var prefs: Prefs
 
+    /**
+     * What the app cannot work without. Location is deliberately absent: with
+     * neverForLocation asserted, scanning, ringing and the leave-behind alert
+     * all work without it. Requiring it would have made a coordinate-stamping
+     * nicety a precondition for the app's actual purpose.
+     */
     private fun requiredPermissions(): Array<String> = buildList {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             add(Manifest.permission.BLUETOOTH_SCAN)
             add(Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            // Pre-12 there is no BLUETOOTH_SCAN, and scanning is gated on location.
+            add(Manifest.permission.ACCESS_FINE_LOCATION)
         }
-        add(Manifest.permission.ACCESS_FINE_LOCATION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.POST_NOTIFICATIONS)
         }
     }.toTypedArray()
 
+    /** Adds the last-seen coordinate. Declining costs only that. */
+    private fun optionalPermissions(): Array<String> =
+        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+
     private fun hasPermissions(): Boolean = requiredPermissions().all {
         ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
     }
+
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -174,13 +190,16 @@ class MainActivity : ComponentActivity() {
             }
 
             if (!granted) {
-                Button(onClick = { launcher.launch(requiredPermissions()) }) {
-                    Text("Grant Bluetooth & location")
+                Button(onClick = {
+                    launcher.launch(requiredPermissions() + optionalPermissions())
+                }) {
+                    Text("Grant permissions")
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Location is used only to record where the tracker was last "
-                        + "seen. Nothing leaves the phone.",
+                    "Bluetooth is required. Location is optional and only records "
+                        + "where a tag was last heard — decline it and everything "
+                        + "else still works. Nothing leaves the phone either way.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 return@Column
