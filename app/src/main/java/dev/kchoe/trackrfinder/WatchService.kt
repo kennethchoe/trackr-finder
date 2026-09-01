@@ -59,6 +59,9 @@ class WatchService : Service() {
 
         startForeground(NOTIF_ONGOING, ongoingNotification("Watching $label", null))
         scanner.start(address = address, lowPower = true)
+        // onStartCommand runs again on re-arm and on system restart; without
+        // this each call would stack another tick loop.
+        handler.removeCallbacks(tick)
         handler.post(tick)
         return START_STICKY
     }

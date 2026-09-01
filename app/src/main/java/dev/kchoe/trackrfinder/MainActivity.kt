@@ -60,6 +60,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // If a watch is armed, restart it from a visible context. A service
+        // restarted at boot may have been denied location; starting it while
+        // the app is on screen restores that without needing the
+        // ACCESS_BACKGROUND_LOCATION permission.
+        if (prefs.watchedAddress != null) {
+            runCatching { WatchService.start(this) }
+        }
+    }
+
     @Composable
     private fun Screen() {
         var granted by remember { mutableStateOf(hasPermissions()) }
