@@ -107,19 +107,27 @@ class TrackrScanner(context: Context) {
     private var lastResultAt = 0L
     private var startedAt = 0L
 
-    /**
-     * True when we appear to be registered but nothing is coming in -- the
-     * observable symptom of being throttled, since the refusal is not reported.
-     */
     /** How long the current scan has been registered, 0 when not scanning. */
     val scanActiveMillis: Long
         get() = if (scanning && startedAt > 0) System.currentTimeMillis() - startedAt else 0L
 
+    /** Timestamps of our own startScan calls, for the throttle rule below. */
+    private val recentStarts = ArrayDeque<Long>()
+
+    /**
+     * Android refuses the sixth scan start within thirty seconds, silently. The
+     * state cannot be queried, but it can be counted: these are our own calls,
+     * so this is evidence rather than inference.
+     *
+     * The previous version guessed from silence, which also fired whenever
+     * nothing happened to be advertising -- reporting a platform fault when the
+     * room was merely empty.
+     */
     val looksThrottled: Boolean
-        get() = scanning &&
-            startedAt > 0 &&
-            System.currentTimeMillis() - startedAt > THROTTLE_SUSPECT_MS &&
-            (lastResultAt == 0L || System.currentTimeMillis() - lastResultAt > THROTTLE_SUSPECT_MS)
+        get() {
+            val cutoff = System.currentTimeMillis() - THROTTLE_WINDOW_MS
+            return recentStarts.count { it >= cutoff } >= THROTTLE_MAX_STARTS
+        }
 
     /**
      * Display order, assigned once per address and never reset. Survives
@@ -240,6 +248,13 @@ class TrackrScanner(context: Context) {
 
         return try {
             scanner.startScan(filters, settings, callback)
+            val startedNow = System.currentTimeMillis()
+            recentStarts.addLast(startedNow)
+            while (recentStarts.isNotEmpty() &&
+                recentStarts.first() < startedNow - THROTTLE_WINDOW_MS
+            ) {
+                recentStarts.removeFirst()
+            }
             scanning = true
             activeAddress = address
             activeMode = scanMode
@@ -303,7 +318,8 @@ class TrackrScanner(context: Context) {
         /** Keep a registration alive this long after a stop request. */
         private const val GRACE_MS = 45_000L
 
-        /** Silence longer than this while "scanning" suggests throttling. */
-        private const val THROTTLE_SUSPECT_MS = 15_000L
+        /** The platform's budget: five scan starts per thirty seconds. */
+        private const val THROTTLE_WINDOW_MS = 30_000L
+        private const val THROTTLE_MAX_STARTS = 5
     }
 }

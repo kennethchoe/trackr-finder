@@ -336,7 +336,9 @@ class MainActivity : ComponentActivity() {
             // boundaries. Position carries no information here; the dBm figure
             // on each row does.
             val others = all.filterNot(::isTag).sortedBy { it.firstSeen }
-            if (list.isEmpty()) {
+            // Nothing to add when the panel above is already explaining the
+            // situation for this very tag.
+            if (list.isEmpty() && !showingOutOfRange) {
                 Spacer(Modifier.height(24.dp))
                 val watchedLabel = watched?.let { nicknames[it] ?: prefs.watchedName }
                 Text(
@@ -528,15 +530,18 @@ private fun LastSeenPanel(
     onToggleAlerts: () -> Unit,
     onForget: () -> Unit,
 ) {
+    // Not the error palette: a tag being out of range is ordinary and often
+    // expected. Red reads as "something has gone wrong", which invites either
+    // alarm or, worse, habituation to a red panel that usually means nothing.
     Card(colors = CardDefaults.cardColors(
-        containerColor = MaterialTheme.colorScheme.errorContainer,
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
     )) {
         Column(Modifier.padding(16.dp)) {
             Text(
                 "$label — out of range",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onErrorContainer,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(8.dp))
 
@@ -552,7 +557,7 @@ private fun LastSeenPanel(
                 if (ago == null) "Not seen since watching began"
                 else "Last heard $ago",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onErrorContainer,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             if (location != null) {
@@ -561,7 +566,7 @@ private fun LastSeenPanel(
                     "%.5f, %.5f".format(location.first, location.second),
                     style = MaterialTheme.typography.bodyMedium,
                     fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
@@ -569,7 +574,7 @@ private fun LastSeenPanel(
                         + "tracker — so the tracker was within about 10-30 m of "
                         + "here at that moment.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
                 Spacer(Modifier.height(6.dp))
@@ -577,7 +582,7 @@ private fun LastSeenPanel(
                     "No position recorded. Grant location \"Allow all the time\" "
                         + "so a fix can be taken while the screen is off.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
@@ -586,7 +591,7 @@ private fun LastSeenPanel(
                 Text(
                     "Alerts are off. This is still the last place it was heard.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 

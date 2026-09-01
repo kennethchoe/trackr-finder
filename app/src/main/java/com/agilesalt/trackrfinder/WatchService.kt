@@ -47,6 +47,15 @@ class WatchService : Service() {
     private var locationAllowed = false
 
     /**
+     * Evaluation is suspended until this time. With the radio off we cannot
+     * tell whether the tag is nearby, and silence must not be read as
+     * departure -- turning Bluetooth off previously produced a "left behind"
+     * alert for a tag on the table. The same grace applies after the radio
+     * returns, so re-acquiring does not race the window.
+     */
+    private var suspendedUntil = 0L
+
+    /**
      * When the tag first went quiet past the window. Silence alone is not
      * proof: at the edge of range gaps of over a minute occur on a tag sitting
      * in the same room (measured: median gap 2.2s, but a maximum of 78s at
@@ -121,7 +130,20 @@ class WatchService : Service() {
     private val tick = object : Runnable {
         override fun run() {
             val addr = address
-            if (addr != null) {
+            if (addr != null && !scanner.bluetoothEnabled) {
+                // Cannot observe; therefore cannot conclude.
+                confirmingSince = 0L
+                suspendedUntil = System.currentTimeMillis() + RADIO_GRACE_MS
+                notificationManager.notify(
+                    NOTIF_ONGOING,
+                    ongoingNotification("$label — waiting for Bluetooth", null),
+                )
+            } else if (addr != null && System.currentTimeMillis() < suspendedUntil) {
+                notificationManager.notify(
+                    NOTIF_ONGOING,
+                    ongoingNotification("$label — reconnecting", null),
+                )
+            } else if (addr != null) {
                 val sighting = scanner.sightings.value[addr]
                 val now = System.currentTimeMillis()
 
@@ -317,6 +339,9 @@ class WatchService : Service() {
         private const val NOTIF_ONGOING = 1
         private const val NOTIF_ALERT = 2
         private const val TICK_MS = 5_000L
+
+        /** Settling time after the radio returns before absence means anything. */
+        private const val RADIO_GRACE_MS = 30_000L
 
         /**
          * How long without hearing a tag before it counts as gone. Shared with
