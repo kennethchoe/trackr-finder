@@ -75,7 +75,7 @@ class MainActivity : ComponentActivity() {
         var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
         var nicknames by remember { mutableStateOf(prefs.allNicknames()) }
         var renaming by remember { mutableStateOf<Sighting?>(null) }
-        var showAll by remember { mutableStateOf(false) }
+        var showAll by remember { mutableStateOf(prefs.showAll) }
         var ringSupport by remember { mutableStateOf(prefs.allRingSupport()) }
         var lastSeenAt by remember { mutableLongStateOf(prefs.lastSeenAt) }
         var lastLoc by remember {
@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
 
         // Foreground discovery scan, live only while this screen is up.
         DisposableEffect(granted) {
+            scanner.showAll = showAll
             if (granted) scanner.start()
             onDispose { scanner.stop() }
         }
@@ -126,6 +127,7 @@ class MainActivity : ComponentActivity() {
                     selected = showAll,
                     onClick = {
                         showAll = !showAll
+                        prefs.showAll = showAll
                         scanner.showAll = showAll
                     },
                     label = {
@@ -215,12 +217,18 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            val all = sightings.values.sortedByDescending { it.rssi }
+            val all = sightings.values
             // A device is a "tag" if it advertised Immediate Alert, has a known
             // tag name, or we proved it ringable by connecting once.
             fun isTag(s: Sighting) = s.ringable || ringSupport[s.address] == true
-            val list = all.filter(::isTag)
+            // Tags: stable order. There are only ever a few, so keeping a card
+            // under the user's thumb matters more than ranking them by signal.
+            val list = all.filter(::isTag).sortedBy { it.firstSeen }
+            // Others: signal order is useful with dozens of rows, but bucketed
+            // so drift does not reshuffle them.
             val others = all.filterNot(::isTag)
+                .sortedWith(compareByDescending<Sighting> { it.signalBucket }
+                    .thenBy { it.firstSeen })
             if (list.isEmpty()) {
                 Spacer(Modifier.height(24.dp))
                 Text("Nothing yet.", style = MaterialTheme.typography.bodyLarge)
@@ -345,7 +353,7 @@ private fun CompactRow(
                 maxLines = 1,
             )
             Text(
-                "%d dBm  ·  %s".format(sighting.rssi, sighting.address),
+                "%d dBm  ·  %s".format(sighting.displayRssi, sighting.address),
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -534,7 +542,7 @@ private fun DeviceCard(
             Text(
                 "≈%.1f m  ·  %d dBm  ·  %s".format(
                     sighting.approxMeters,
-                    sighting.rssi,
+                    sighting.displayRssi,
                     SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(sighting.seenAt)),
                 ),
                 style = MaterialTheme.typography.bodySmall,

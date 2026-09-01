@@ -2,6 +2,7 @@ package dev.kchoe.trackrfinder
 
 import java.util.UUID
 import kotlin.math.pow
+import kotlin.math.roundToInt
 
 /**
  * The TrackR Pixel is not a proprietary device: it implements the Bluetooth SIG
@@ -61,6 +62,10 @@ data class Sighting(
     val rssi: Int,
     val seenAt: Long = System.currentTimeMillis(),
     val matchReason: MatchReason = MatchReason.KNOWN_NAME,
+    /** Exponentially smoothed RSSI. Raw readings swing 5-10 dBm at rest. */
+    val smoothedRssi: Float = rssi.toFloat(),
+    /** Used as a stable sort key so rows do not reshuffle as signal drifts. */
+    val firstSeen: Long = seenAt,
 ) {
     /** True when we have positive evidence the device can be rung. */
     val ringable: Boolean get() = matchReason != MatchReason.SHOW_ALL
@@ -73,14 +78,29 @@ data class Sighting(
      * Useful for hot/cold, not for a number you should trust.
      */
     val approxMeters: Double
-        get() = 10.0.pow((TX_POWER_AT_1M - rssi) / (10.0 * PATH_LOSS_EXPONENT))
+        get() = 10.0.pow((TX_POWER_AT_1M - smoothedRssi) / (10.0 * PATH_LOSS_EXPONENT))
 
     /** 0f (far/absent) .. 1f (touching) -- for driving a proximity bar. */
     val closeness: Float
-        get() = ((rssi + 100).coerceIn(0, 60)) / 60f
+        get() = ((smoothedRssi + 100).coerceIn(0f, 60f)) / 60f
+
+    /** Displayed dBm, smoothed so the number does not flicker. */
+    val displayRssi: Int get() = smoothedRssi.roundToInt()
+
+    /**
+     * Coarse signal bucket. Sorting on this instead of the raw value means
+     * ordinary drift never reorders the list, but real movement still does.
+     */
+    val signalBucket: Int get() = (smoothedRssi / BUCKET_DB).roundToInt()
 
     companion object {
         const val TX_POWER_AT_1M = -59.0
         const val PATH_LOSS_EXPONENT = 2.5
+
+        /** Weight given to each new reading. Lower = smoother, slower. */
+        const val SMOOTHING = 0.25f
+
+        /** Sort bucket width in dB. Wider = more stable, less precise. */
+        const val BUCKET_DB = 6f
     }
 }

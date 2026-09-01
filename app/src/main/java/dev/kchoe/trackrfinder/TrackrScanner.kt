@@ -88,11 +88,20 @@ class TrackrScanner(context: Context) {
         }
 
         val address = result.device.address
+        val prev = _sightings.value[address]
+        // Blend into the previous value rather than replacing it, and carry
+        // firstSeen forward so the sort key stays stable across updates.
+        val smoothed = prev?.let {
+            it.smoothedRssi + Sighting.SMOOTHING * (result.rssi - it.smoothedRssi)
+        } ?: result.rssi.toFloat()
+
         _sightings.value = _sightings.value + (address to Sighting(
             address = address,
             name = displayName(name),
             rssi = result.rssi,
             matchReason = reason,
+            smoothedRssi = smoothed,
+            firstSeen = prev?.firstSeen ?: System.currentTimeMillis(),
         ))
     }
 

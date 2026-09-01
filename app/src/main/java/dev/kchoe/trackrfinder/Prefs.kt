@@ -30,6 +30,14 @@ class Prefs(context: Context) {
     val hasLocation: Boolean get() = !lastLat.isNaN() && !lastLon.isNaN()
 
     /**
+     * Persisted, not just remembered: a `remember` would reset on rotation, a
+     * theme change, or the process being reclaimed in the background.
+     */
+    var showAll: Boolean
+        get() = sp.getBoolean("show_all", false)
+        set(v) = sp.edit().putBoolean("show_all", v).apply()
+
+    /**
      * A nickname is a local label only. The device's own GAP name (0x2A00) is
      * read-only, so renaming here never touches the tracker -- it is keyed by
      * MAC address and lives on this phone.
