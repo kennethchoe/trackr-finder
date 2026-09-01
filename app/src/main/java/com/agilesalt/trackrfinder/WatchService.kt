@@ -71,7 +71,7 @@ class WatchService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            stopSelf()
+            stopForegroundAndSelf()
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_TEST) {
@@ -81,7 +81,11 @@ class WatchService : Service() {
         }
         val next = prefs.watchedAddress
         if (next == null || !prefs.watchEnabled) {
-            stopSelf()
+            // Belt and braces: if we were started via startForegroundService we
+            // owe the platform a startForeground call even on the way out, or
+            // it kills the process for breaching the contract.
+            enterForeground(false)
+            stopForegroundAndSelf()
             return START_NOT_STICKY
         }
         if (next != address) {
@@ -240,6 +244,11 @@ class WatchService : Service() {
 
     private val notificationManager: NotificationManager
         get() = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    private fun stopForegroundAndSelf() {
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+        stopSelf()
+    }
 
     /** @return false when the platform refuses the foreground start entirely. */
     private fun enterForeground(withLocation: Boolean): Boolean = try {

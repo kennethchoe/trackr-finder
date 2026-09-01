@@ -94,7 +94,11 @@ class MainActivity : ComponentActivity() {
         // restarted at boot may have been denied location; starting it while
         // the app is on screen restores that without needing the
         // ACCESS_BACKGROUND_LOCATION permission.
-        if (prefs.watchedAddress != null) {
+        // Must check watchEnabled too, not just that a tag is remembered.
+        // startForegroundService obliges the service to call startForeground;
+        // starting it while alerts are off made it bail out first, and Android
+        // kills the app for breaking that contract.
+        if (prefs.watchedAddress != null && prefs.watchEnabled) {
             // Visible app, so the location service type is permitted here even
             // though it was refused at boot. This is what restores the ability
             // to record a coordinate after a restart.
