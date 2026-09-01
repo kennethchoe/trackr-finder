@@ -1,4 +1,4 @@
-package dev.kchoe.trackrfinder
+package com.agilesalt.trackrfinder
 
 import java.util.UUID
 import kotlin.math.pow

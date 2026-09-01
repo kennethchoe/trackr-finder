@@ -1,4 +1,4 @@
-package dev.kchoe.trackrfinder
+package com.agilesalt.trackrfinder
 
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat

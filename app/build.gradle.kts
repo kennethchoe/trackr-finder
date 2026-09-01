@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "dev.kchoe.trackrfinder"
+    namespace = "com.agilesalt.trackrfinder"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "dev.kchoe.trackrfinder"
+        applicationId = "com.agilesalt.trackrfinder"
         minSdk = 26
         targetSdk = 36
         versionCode = 1

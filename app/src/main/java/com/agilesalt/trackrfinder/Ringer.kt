@@ -1,4 +1,4 @@
-package dev.kchoe.trackrfinder
+package com.agilesalt.trackrfinder
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice

@@ -1,4 +1,4 @@
-# Proposed F-Droid metadata. Submit as dev.kchoe.trackrfinder.yml via a merge
+# Proposed F-Droid metadata. Submit as com.agilesalt.trackrfinder.yml via a merge
 # request to https://gitlab.com/fdroid/fdroiddata
 Categories:
   - Connectivity

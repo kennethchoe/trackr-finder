@@ -1,4 +1,4 @@
-package dev.kchoe.trackrfinder
+package com.agilesalt.trackrfinder
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -185,7 +185,7 @@ class WatchService : Service() {
     }
 
     companion object {
-        const val ACTION_STOP = "dev.kchoe.trackrfinder.STOP"
+        const val ACTION_STOP = "com.agilesalt.trackrfinder.STOP"
         private const val CHANNEL_ONGOING = "watching"
         private const val CHANNEL_ALERT = "left_behind"
         private const val NOTIF_ONGOING = 1

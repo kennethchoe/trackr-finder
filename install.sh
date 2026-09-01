@@ -7,4 +7,4 @@ cd "$(dirname "$0")"
 ./gradlew assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 echo "Installed. Launching…"
-adb shell monkey -p dev.kchoe.trackrfinder -c android.intent.category.LAUNCHER 1 >/dev/null
+adb shell monkey -p com.agilesalt.trackrfinder -c android.intent.category.LAUNCHER 1 >/dev/null
