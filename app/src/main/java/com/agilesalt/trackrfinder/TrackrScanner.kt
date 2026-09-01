@@ -7,11 +7,15 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import kotlin.math.exp
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,6 +33,8 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 @SuppressLint("MissingPermission")
 class TrackrScanner(context: Context) {
+
+    private val appContext = context.applicationContext
 
     private val adapter: BluetoothAdapter? =
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
@@ -50,6 +56,52 @@ class TrackrScanner(context: Context) {
      */
     private val handler = Handler(Looper.getMainLooper())
     private val deferredStop = Runnable { stopNow() }
+
+    // What the caller wants, as opposed to what is currently registered. The
+    // two diverge when the Bluetooth stack drops our registration underneath us.
+    private var wantScanning = false
+    private var wantAddress: String? = null
+    private var wantMode: Mode = Mode.LOW_LATENCY
+
+    /**
+     * Turning Bluetooth off silently discards every scan registration. Nothing
+     * is delivered to the app, so `scanning` stayed true, results stopped, and
+     * the throttle heuristic latched on forever -- the scan never came back
+     * when Bluetooth did.
+     */
+    private val adapterStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)) {
+                BluetoothAdapter.STATE_OFF, BluetoothAdapter.STATE_TURNING_OFF -> {
+                    scanning = false
+                    activeAddress = null
+                    activeMode = null
+                    startedAt = 0L
+                    lastResultAt = 0L
+                    // Old sightings say nothing about the present.
+                    _sightings.value = emptyMap()
+                }
+                BluetoothAdapter.STATE_ON -> {
+                    if (wantScanning) start(wantAddress, wantMode)
+                }
+            }
+        }
+    }
+
+    init {
+        ContextCompat.registerReceiver(
+            appContext,
+            adapterStateReceiver,
+            IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+    }
+
+    /** Detach from the adapter broadcast. Safe to call more than once. */
+    fun release() {
+        runCatching { appContext.unregisterReceiver(adapterStateReceiver) }
+        stopNow()
+    }
 
     /** Set when a scan is registered but no advertisement has arrived since. */
     private var lastResultAt = 0L
@@ -159,6 +211,9 @@ class TrackrScanner(context: Context) {
         val scanner = adapter?.bluetoothLeScanner ?: return false
 
         handler.removeCallbacks(deferredStop)
+        wantScanning = true
+        wantAddress = address
+        wantMode = scanMode
 
         // Already registered with these exact parameters: reuse it rather than
         // spending another start against the throttle budget.
@@ -207,6 +262,7 @@ class TrackrScanner(context: Context) {
 
     private fun stopNow() {
         handler.removeCallbacks(deferredStop)
+        wantScanning = false
         if (!scanning) return
         try {
             adapter?.bluetoothLeScanner?.stopScan(callback)

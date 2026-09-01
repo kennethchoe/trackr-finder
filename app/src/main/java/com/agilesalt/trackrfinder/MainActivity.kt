@@ -79,6 +79,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        scanner.release()
+    }
+
     override fun onStop() {
         super.onStop()
         // Deferred, not immediate: switching away and back within the grace

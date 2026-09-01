@@ -34,7 +34,7 @@ fun Header(
     foundCount: Int,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        BeaconAvatar(scanning = scanning, active = foundCount > 0)
+        BeaconAvatar(scanning = scanning, active = scanning && foundCount > 0)
         Spacer(Modifier.width(16.dp))
         Column {
             Text(
@@ -44,7 +44,10 @@ fun Header(
             )
             Spacer(Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                StatusDot(active = foundCount > 0)
+                // Green means "scanning and hearing something". With the radio
+                // off there may still be stale entries, and a green dot over
+                // "Bluetooth is off" is a contradiction.
+                StatusDot(active = scanning && foundCount > 0)
                 Spacer(Modifier.width(6.dp))
                 Text(
                     status,

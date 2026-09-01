@@ -303,7 +303,7 @@ class WatchService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
-        scanner.stop()
+        scanner.release()
         super.onDestroy()
     }
 
