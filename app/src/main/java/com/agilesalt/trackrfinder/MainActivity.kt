@@ -86,9 +86,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Deferred, not immediate: switching away and back within the grace
-        // period keeps the existing registration instead of spending another
-        // scan start. Android refuses the sixth start in 30 seconds silently.
+        // Deferred: a quick switch away and back reuses the registration.
         scanner.stopSoon()
     }
 
@@ -99,10 +97,8 @@ class MainActivity : ComponentActivity() {
         // restarted at boot may have been denied location; starting it while
         // the app is on screen restores that without needing the
         // ACCESS_BACKGROUND_LOCATION permission.
-        // Must check watchEnabled too, not just that a tag is remembered.
-        // startForegroundService obliges the service to call startForeground;
-        // starting it while alerts are off made it bail out first, and Android
-        // kills the app for breaking that contract.
+        // startForegroundService obliges the service to call startForeground,
+        // so only start it when it will actually stay up.
         if (prefs.watchedAddress != null && prefs.watchEnabled) {
             // Visible app, so the location service type is permitted here even
             // though it was refused at boot. This is what restores the ability
@@ -138,9 +134,7 @@ class MainActivity : ComponentActivity() {
         DisposableEffect(granted) {
             scanner.showAll = showAll
             if (granted) scanner.start()
-            // No stop here: the activity lifecycle owns that. Stopping on every
-            // recomposition of this effect cost a scan start on the way back,
-            // and Android only allows five per 30 seconds.
+            // The activity lifecycle owns stopping.
             onDispose { }
         }
         LaunchedEffect(granted) {
@@ -168,8 +162,7 @@ class MainActivity : ComponentActivity() {
                 status = when {
                     !scanner.bluetoothEnabled -> "Bluetooth is off"
                     !granted -> "Permissions needed"
-                    // Android refuses the start silently, so without this the
-                    // header would claim to be scanning while nothing runs.
+                    // The refusal is silent, so say so rather than claim to scan.
                     scanner.looksThrottled -> "Android is throttling scans — hold on"
                     found == 0 -> "Scanning…"
                     found == 1 -> "Scanning · 1 nearby"
@@ -227,10 +220,7 @@ class MainActivity : ComponentActivity() {
                 sightings[w]?.ageMillis ?: Long.MAX_VALUE,
                 if (lastSeenAt > 0) now - lastSeenAt else Long.MAX_VALUE,
             )
-            // Do not cry "out of range" before the scan has had a chance to
-            // look. On a cold start the stored last-sighting is stale and the
-            // scanner has not found anything yet, which flashed the red panel
-            // for a second or two on a tag that was sitting right there.
+            // Absence only counts once the scan has had time to look.
             val hadTimeToLook = scanner.scanActiveMillis > SCAN_SETTLE_MS
             val showingOutOfRange =
                 w != null && hadTimeToLook && heardMillisAgo > WatchService.OUT_OF_RANGE_MS
@@ -276,9 +266,8 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.height(16.dp))
             }
 
-            // Ringing doubles as the capability probe: the advertisement cannot
-            // tell us whether a device speaks Immediate Alert, but a real GATT
-            // service discovery can, so we record what we learn.
+            // Ringing doubles as the capability probe: only service discovery
+            // reveals whether a device speaks Immediate Alert.
             val doRing: (Sighting) -> Unit = { s ->
                 ringing = s.address
                 status = "Connecting…"
@@ -307,14 +296,11 @@ class MainActivity : ComponentActivity() {
             // A device is a "tag" if it advertised Immediate Alert, has a known
             // tag name, or we proved it ringable by connecting once.
             fun isTag(s: Sighting) = s.ringable || ringSupport[s.address] == true
-            // Tags: stable order. There are only ever a few, so keeping a card
-            // under the user's thumb matters more than ranking them by signal.
+            // Stable order: a card staying under the thumb beats ranking.
             val liveTags = all.filter(::isTag).sortedBy { it.firstSeen }
 
-            // A watched tag must never vanish from the screen. Between losing
-            // contact and being declared gone there is a window where it is
-            // simply not being heard; showing nothing there reads as though the
-            // app forgot it. Fall back to its last known state instead.
+            // A watched tag never vanishes: between losing contact and being
+            // declared gone, fall back to its last known state.
             val staleWatched = if (
                 w != null && !showingOutOfRange && liveTags.none { it.address == w }
             ) {
@@ -330,14 +316,11 @@ class MainActivity : ComponentActivity() {
             // Watched tag first: it is the one the user came to look at.
             val list = (listOfNotNull(staleWatched) + liveTags)
                 .sortedByDescending { it.address == w }
-            // Others: discovery order, never signal. Any signal-derived ordering
-            // churns -- with two dozen devices clustered within 10 dB, even a
-            // bucketed sort reshuffles constantly as readings drift across
-            // boundaries. Position carries no information here; the dBm figure
-            // on each row does.
+            // Discovery order, never signal: with devices clustered within a
+            // few dB any signal ordering reshuffles constantly. The dBm figure
+            // on each row carries that information instead.
             val others = all.filterNot(::isTag).sortedBy { it.firstSeen }
-            // Nothing to add when the panel above is already explaining the
-            // situation for this very tag.
+            // The panel above already explains this tag.
             if (list.isEmpty() && !showingOutOfRange) {
                 Spacer(Modifier.height(24.dp))
                 val watchedLabel = watched?.let { nicknames[it] ?: prefs.watchedName }
@@ -392,9 +375,7 @@ class MainActivity : ComponentActivity() {
                                 } else null
 
                                 if (previous != s.address) {
-                                    // The stored sighting belongs to the old tag;
-                                    // carrying it over would attribute one tag's
-                                    // last known position to another.
+                                    // The stored sighting belongs to the old tag.
                                     prefs.lastSeenAt = 0L
                                     prefs.lastLat = Double.NaN
                                     prefs.lastLon = Double.NaN
@@ -410,9 +391,7 @@ class MainActivity : ComponentActivity() {
                                 alertsOn = true
                                 WatchService.start(this@MainActivity, withLocation = true)
 
-                                // Only one tag can be watched. Say so plainly:
-                                // silently disarming the previous one would let
-                                // the user rely on an alert that will not come.
+                                // Only one tag can be watched; name the one dropped.
                                 status = replaced?.let {
                                     "Watching ${nicknames[s.address] ?: s.name}. " +
                                         "$it is no longer watched."
@@ -530,9 +509,8 @@ private fun LastSeenPanel(
     onToggleAlerts: () -> Unit,
     onForget: () -> Unit,
 ) {
-    // Not the error palette: a tag being out of range is ordinary and often
-    // expected. Red reads as "something has gone wrong", which invites either
-    // alarm or, worse, habituation to a red panel that usually means nothing.
+    // Neutral, not the error palette: being out of range is ordinary, and a
+    // standing red panel trains the user to ignore it.
     Card(colors = CardDefaults.cardColors(
         containerColor = MaterialTheme.colorScheme.surfaceVariant,
     )) {
@@ -606,9 +584,7 @@ private fun LastSeenPanel(
                     Text(if (alertsOn) "Stop alerting" else "Resume alerts", maxLines = 1)
                 }
             }
-            // Forget is the only destructive action here and is deliberately
-            // the quietest: stopping alerts must not throw away the last known
-            // position, which is what the panel exists to show.
+            // Forget is the only destructive action, so it is the quietest.
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                 TextButton(onClick = onForget) { Text("Forget this tag", maxLines = 1) }
             }
@@ -743,8 +719,7 @@ private fun DeviceCard(
             )
 
             Spacer(Modifier.height(12.dp))
-            // Two rows: four controls do not fit on one line at larger font
-            // scales, and a wrapped button label looks broken.
+            // Two rows: four controls wrap badly at larger font scales.
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -764,9 +739,8 @@ private fun DeviceCard(
                 }
             }
             Spacer(Modifier.height(4.dp))
-            // A whole sentence with a switch beats a two-word button: the
-            // feature needs explaining, and the on/off state shows itself
-            // rather than hiding in a verb.
+            // A sentence plus a switch: the feature needs explaining, and the
+            // state shows itself rather than hiding in a verb.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth(),
@@ -782,9 +756,8 @@ private fun DeviceCard(
                 horizontalArrangement = Arrangement.End,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                // Only useful while armed, and worth having: whether an alert is
-                // actually noticeable when the phone is locked is not something
-                // you want to discover by losing your keys.
+                // Whether an alert is noticeable when locked is worth checking
+                // before relying on it.
                 if (isWatched) {
                     TextButton(onClick = onTestAlert) { Text("Test alert", maxLines = 1) }
                 }

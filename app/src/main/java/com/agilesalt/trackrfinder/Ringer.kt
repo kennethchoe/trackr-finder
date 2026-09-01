@@ -16,19 +16,16 @@ import android.util.Log
 sealed interface RingResult {
     data class Success(val batteryPct: Int?) : RingResult
 
-    /**
-     * Connected and enumerated services, but the device has no Immediate Alert.
-     * A definitive answer -- unlike Failure, which may just be range or timing.
-     */
+    /** Connected and enumerated: the device has no Immediate Alert. */
     data object Unsupported : RingResult
 
     data class Failure(val reason: String) : RingResult
 }
 
 /**
- * Connects, writes one byte to the Immediate Alert Service, opportunistically
- * reads the battery level, and disconnects. No bonding or pairing is involved --
- * the Find Me profile is unauthenticated by design.
+ * Connects, writes one byte to the Immediate Alert Service, reads the battery
+ * level if present, and disconnects. The Find Me profile is unauthenticated,
+ * so no bonding is involved.
  */
 @SuppressLint("MissingPermission")
 class Ringer(private val context: Context) {
@@ -99,7 +96,7 @@ class Ringer(private val context: Context) {
         override fun onCharacteristicWrite(
             g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int,
         ) {
-            // The ring already happened. Battery is a bonus; never fail on it.
+            // The ring already happened; battery is a bonus.
             val batteryChar = g.getService(Trackr.BATTERY_SERVICE)
                 ?.getCharacteristic(Trackr.BATTERY_LEVEL)
             if (batteryChar == null || !g.readCharacteristic(batteryChar)) {
@@ -128,8 +125,7 @@ class Ringer(private val context: Context) {
 
     @Suppress("DEPRECATION")
     private fun writeAlert(g: BluetoothGatt, ch: BluetoothGattCharacteristic, level: Byte) {
-        // The Find Me spec mandates write-without-response, but honour whatever
-        // the device actually advertises rather than assuming.
+        // Honour the advertised write type rather than assuming the spec's.
         val type = if (ch.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) {
             BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
         } else {

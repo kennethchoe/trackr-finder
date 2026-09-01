@@ -5,10 +5,9 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /**
- * The TrackR Pixel is not a proprietary device: it implements the Bluetooth SIG
- * "Find Me" profile. Ringing it is a single one-byte write to the standard
- * Immediate Alert Service. Protocol confirmed against
- * github.com/danielweidman/TrackR-Web-Bluetooth-API
+ * The TrackR Pixel implements the Bluetooth SIG "Find Me" profile, so ringing
+ * it is one byte written to the standard Immediate Alert Service.
+ * Protocol confirmed against github.com/danielweidman/TrackR-Web-Bluetooth-API
  */
 object Trackr {
     val IMMEDIATE_ALERT: UUID = uuid16("1802")
@@ -20,10 +19,8 @@ object Trackr {
     const val NAME_PREFIX = "tkr"
 
     /**
-     * Name prefixes of tags known to implement Find Me. Only a fallback: the
-     * reliable signal is the device advertising Immediate Alert directly, but
-     * plenty of cheap tags omit it from the advertisement and expose it only
-     * after connecting, where a scan filter cannot see it.
+     * Fallback for tags that expose Immediate Alert only after connecting,
+     * where a scan filter cannot see it.
      */
     val KNOWN_TAG_PREFIXES = listOf("tkr", "itag", "tag", "nut", "keyfinder")
 
@@ -73,9 +70,8 @@ data class Sighting(
     val ageMillis: Long get() = System.currentTimeMillis() - seenAt
 
     /**
-     * Log-distance path loss. This is a coarse hint only -- RSSI is noisy and
-     * body/pocket/wall attenuation easily doubles the apparent distance.
-     * Useful for hot/cold, not for a number you should trust.
+     * Log-distance path loss. A hot/cold hint only: body, pocket and wall
+     * attenuation easily double the apparent distance.
      */
     val approxMeters: Double
         get() = 10.0.pow((TX_POWER_AT_1M - smoothedRssi) / (10.0 * PATH_LOSS_EXPONENT))
@@ -93,14 +89,9 @@ data class Sighting(
         const val PATH_LOSS_EXPONENT = 2.5
 
         /**
-         * Smoothing time constant. Deliberately expressed in time, not in
-         * packets: advertising rates differ by orders of magnitude between
-         * devices, so a fixed per-packet weight smooths a chatty device nicely
-         * while lagging a slow one by tens of seconds. A TrackR advertises
-         * roughly every 2s, so a per-packet weight of 0.05 took ~40s to settle.
-         *
-         * Deriving the weight from elapsed time instead gives every device the
-         * same perceived responsiveness regardless of how often it speaks.
+         * Smoothing time constant, expressed in time rather than packets so
+         * that devices settle at the same rate regardless of how often they
+         * advertise -- rates differ by orders of magnitude.
          */
         const val TIME_CONSTANT_MS = 2_500.0
 

@@ -46,14 +46,7 @@ class TrackrScanner(context: Context) {
     private var activeAddress: String? = null
     private var activeMode: Mode? = null
 
-    /**
-     * Android permits five scan starts per 30 seconds, then silently refuses
-     * registration -- the rejection happens client-side, so ScanCallback never
-     * even sees it. Stopping on every app switch burned through that budget and
-     * left the scanner dead with no error anywhere except logcat. So a stop is
-     * deferred: a quick switch away and back cancels it and keeps the existing
-     * registration rather than spending another start.
-     */
+    /** Deferred so a brief switch away keeps the registration, not a start. */
     private val handler = Handler(Looper.getMainLooper())
     private val deferredStop = Runnable { stopNow() }
 
@@ -63,12 +56,7 @@ class TrackrScanner(context: Context) {
     private var wantAddress: String? = null
     private var wantMode: Mode = Mode.LOW_LATENCY
 
-    /**
-     * Turning Bluetooth off silently discards every scan registration. Nothing
-     * is delivered to the app, so `scanning` stayed true, results stopped, and
-     * the throttle heuristic latched on forever -- the scan never came back
-     * when Bluetooth did.
-     */
+    /** Turning the adapter off discards every scan registration silently. */
     private val adapterStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)) {
@@ -115,13 +103,8 @@ class TrackrScanner(context: Context) {
     private val recentStarts = ArrayDeque<Long>()
 
     /**
-     * Android refuses the sixth scan start within thirty seconds, silently. The
-     * state cannot be queried, but it can be counted: these are our own calls,
-     * so this is evidence rather than inference.
-     *
-     * The previous version guessed from silence, which also fired whenever
-     * nothing happened to be advertising -- reporting a platform fault when the
-     * room was merely empty.
+     * Android silently refuses the sixth scan start within thirty seconds and
+     * offers no way to query the state, so count our own calls.
      */
     val looksThrottled: Boolean
         get() {
@@ -130,18 +113,12 @@ class TrackrScanner(context: Context) {
         }
 
     /**
-     * Display order, assigned once per address and never reset. Survives
-     * expiry: a device that advertises every 30s would otherwise be dropped by
-     * the 20s expiry and return as "new", jumping to the end of the list on
-     * every cycle. Not cleared, so ordering is stable for the whole session.
+     * Display order per address, never reset, so a device that expires and
+     * returns keeps its place instead of jumping to the end.
      */
     private val firstSeenOrder = mutableMapOf<String, Long>()
 
-    /**
-     * When true, every advertisement is listed, not just probable tags. Off by
-     * default because a BLE scan in a populated area is mostly headphones,
-     * televisions and other people's phones.
-     */
+    /** List every advertisement, not just probable tags. */
     var showAll: Boolean = false
         set(value) {
             field = value
@@ -290,11 +267,7 @@ class TrackrScanner(context: Context) {
         startedAt = 0L
     }
 
-    /**
-     * Advertised names are arbitrary bytes. Some devices broadcast control
-     * characters or padding that survive trim() and render as an invisible
-     * title, so require at least one visible character before trusting it.
-     */
+    /** Advertised names are arbitrary bytes; require a visible character. */
     private fun displayName(raw: String?): String =
         raw?.filterNot { it.isISOControl() }
             ?.trim()
@@ -302,10 +275,7 @@ class TrackrScanner(context: Context) {
             ?: "(unnamed)"
 
     /** Drop devices we haven't heard from recently so the list reflects reality. */
-    /**
-     * @param millis generous by design: plenty of devices advertise only every
-     * 10-30s, and dropping them between beacons makes the list flicker.
-     */
+    /** @param millis generous: many devices advertise only every 10-30s. */
     fun expireOlderThan(millis: Long) {
         val cutoff = System.currentTimeMillis() - millis
         val kept = _sightings.value.filterValues { it.seenAt >= cutoff }

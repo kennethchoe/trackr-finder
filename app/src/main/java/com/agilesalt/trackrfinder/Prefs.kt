@@ -15,15 +15,11 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putString("name", v).apply()
 
     /**
-     * Whether alerts are armed. Deliberately separate from watchedAddress:
-     * turning alerts off must not discard which tag we care about, or where it
-     * was last heard. Losing that to a mis-tap would destroy exactly the
-     * information the user opened the app to read.
+     * Whether alerts are armed. Separate from watchedAddress so turning alerts
+     * off keeps the tag and its last known position on screen.
      */
     var watchEnabled: Boolean
-        // Migration: before this key existed, having an address meant alerts
-        // were on. Defaulting to false would have silently disarmed an already
-        // armed watch on upgrade, with nothing in the UI to say so.
+        // Installations predating this key: an address meant alerts were on.
         get() = if (sp.contains(KEY_WATCH_ENABLED)) {
             sp.getBoolean(KEY_WATCH_ENABLED, false)
         } else {
@@ -60,18 +56,14 @@ class Prefs(context: Context) {
 
     val hasLocation: Boolean get() = !lastLat.isNaN() && !lastLon.isNaN()
 
-    /**
-     * Persisted, not just remembered: a `remember` would reset on rotation, a
-     * theme change, or the process being reclaimed in the background.
-     */
+    /** Persisted so it survives rotation, theme changes and process death. */
     var showAll: Boolean
         get() = sp.getBoolean("show_all", false)
         set(v) = sp.edit().putBoolean("show_all", v).apply()
 
     /**
-     * A nickname is a local label only. The device's own GAP name (0x2A00) is
-     * read-only, so renaming here never touches the tracker -- it is keyed by
-     * MAC address and lives on this phone.
+     * A local label keyed by MAC. The device's own GAP name (0x2A00) is
+     * read-only, so this never touches the tracker.
      */
     fun nickname(address: String): String? = sp.getString(nickKey(address), null)
 
@@ -93,9 +85,8 @@ class Prefs(context: Context) {
         nickname(address) ?: advertised ?: address
 
     /**
-     * What we learned by actually connecting: true = has Immediate Alert,
-     * false = definitively does not, null = never probed. Advertisements cannot
-     * answer this, so it is only ever set from a real GATT service discovery.
+     * From service discovery: true = has Immediate Alert, false = does not,
+     * null = never probed. Advertisements cannot answer this.
      */
     fun ringSupport(address: String): Boolean? =
         if (sp.contains(ringKey(address))) sp.getBoolean(ringKey(address), false) else null

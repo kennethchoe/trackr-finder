@@ -23,8 +23,7 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Icon avatar plus stacked title and status. The ring pulses only while a scan
- * is actually running, so the header doubles as a liveness indicator -- a
- * frozen ring means the radio stopped, which is otherwise invisible.
+ * is running, so a frozen ring means the radio has stopped.
  */
 @Composable
 fun Header(
@@ -44,9 +43,7 @@ fun Header(
             )
             Spacer(Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Green means "scanning and hearing something". With the radio
-                // off there may still be stale entries, and a green dot over
-                // "Bluetooth is off" is a contradiction.
+                // Green means scanning and hearing something.
                 StatusDot(active = scanning && foundCount > 0)
                 Spacer(Modifier.width(6.dp))
                 Text(
@@ -92,7 +89,7 @@ private fun BeaconAvatar(scanning: Boolean, active: Boolean) {
 
             drawCircle(color = container, radius = maxR, center = c)
 
-            // Expanding ring, fading as it grows. Only while scanning.
+            // Expanding ring, fading as it grows.
             if (scanning) {
                 val r = maxR * (0.35f + 0.65f * pulse)
                 drawCircle(

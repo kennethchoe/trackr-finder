@@ -3,14 +3,10 @@
 
     <!-- Android 12+ split the old blanket BLUETOOTH permission in two. -->
     <!--
-      neverForLocation asserts we do not derive physical location from scan
-      results, which is accurate: proximity comes from RSSI of one known tag,
-      and the recorded coordinate comes from LocationManager, not from BLE.
-
-      Without this assertion the platform gates scan-result delivery on
-      ACCESS_FINE_LOCATION, a while-in-use permission. A service started at
-      boot cannot hold it, so the scan started but silently received nothing:
-        BluetoothUtils: Need ACCESS_FINE_LOCATION permission for ...
+      neverForLocation is accurate here: proximity comes from one tag's RSSI and
+      the coordinate from LocationManager, never from scan data. Without it the
+      platform gates scan results on ACCESS_FINE_LOCATION, a while-in-use
+      permission a boot-started service cannot hold.
     -->
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
@@ -24,11 +20,9 @@
         android:maxSdkVersion="30" />
 
     <!--
-      Only to stamp a coordinate on the last sighting. Deliberately omits
-      ACCESS_BACKGROUND_LOCATION: a foreground service declaring the "location"
-      type may access location without it, provided the service is started
-      while the app is visible, which it is, since the user taps the switch.
-      That keeps us out of Play's background location declaration review.
+      Stamps a coordinate on the last sighting. ACCESS_BACKGROUND_LOCATION is
+      not needed: a foreground service declaring the "location" type may access
+      location when started while the app is visible.
     -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -50,11 +44,10 @@
         android:theme="@style/Theme.TrackrFinder">
 
         <!--
-          Handle configuration changes in-process rather than being recreated.
-          Recreation discarded the live scan results (the list blanked on every
-          rotation) and, worse, spent one of Android's five-scan-starts-per-30s
-          budget each time. Compose redraws on resize without help, and there
-          are no orientation-specific resources to reload.
+          Configuration changes are handled in-process: recreation would discard
+          live scan results and spend one of Android's five scan starts per
+          thirty seconds. Compose reflows on resize, and there are no
+          orientation-specific resources.
         -->
         <activity
             android:name=".MainActivity"

@@ -6,13 +6,11 @@ import android.content.Intent
 import android.util.Log
 
 /**
- * Without this the leave-behind watch silently dies on reboot: no notification,
- * nothing scanning, and the app looks perfectly normal next time you open it.
- * An alarm you trust that is not actually running is worse than no alarm.
+ * Restores the leave-behind watch after a reboot.
  *
- * A service started from boot is a background start, so the system may withhold
- * location. The alert itself is unaffected -- only the recorded coordinate is,
- * and MainActivity re-arms from the foreground to restore it.
+ * This is a background start, so the system may withhold location; the alert
+ * is unaffected and MainActivity re-arms from the foreground to restore the
+ * coordinate.
  */
 class BootReceiver : BroadcastReceiver() {
 
@@ -31,9 +29,8 @@ class BootReceiver : BroadcastReceiver() {
 
         try {
             WatchService.start(context)
-            // Logged on success too: without this there is no way to tell a
-            // working boot restart from one that never ran, since the service
-            // also gets re-armed whenever the app is opened.
+            // Logged on success so a boot restart is distinguishable from the
+            // re-arm that happens whenever the app is opened.
             Log.i(TAG, "boot: watch restart requested")
         } catch (e: Exception) {
             // Android 14+ can refuse a foreground service start from boot.
