@@ -91,7 +91,7 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(granted) {
             while (granted) {
                 delay(1000)
-                scanner.expireOlderThan(20_000)
+                scanner.expireOlderThan(60_000)
                 now = System.currentTimeMillis()
                 lastSeenAt = prefs.lastSeenAt
                 lastLoc = if (prefs.hasLocation) prefs.lastLat to prefs.lastLon else null
@@ -224,11 +224,12 @@ class MainActivity : ComponentActivity() {
             // Tags: stable order. There are only ever a few, so keeping a card
             // under the user's thumb matters more than ranking them by signal.
             val list = all.filter(::isTag).sortedBy { it.firstSeen }
-            // Others: signal order is useful with dozens of rows, but bucketed
-            // so drift does not reshuffle them.
-            val others = all.filterNot(::isTag)
-                .sortedWith(compareByDescending<Sighting> { it.signalBucket }
-                    .thenBy { it.firstSeen })
+            // Others: discovery order, never signal. Any signal-derived ordering
+            // churns -- with two dozen devices clustered within 10 dB, even a
+            // bucketed sort reshuffles constantly as readings drift across
+            // boundaries. Position carries no information here; the dBm figure
+            // on each row does.
+            val others = all.filterNot(::isTag).sortedBy { it.firstSeen }
             if (list.isEmpty()) {
                 Spacer(Modifier.height(24.dp))
                 Text("Nothing yet.", style = MaterialTheme.typography.bodyLarge)

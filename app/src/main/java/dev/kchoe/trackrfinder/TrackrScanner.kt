@@ -36,6 +36,14 @@ class TrackrScanner(context: Context) {
     private var scanning = false
 
     /**
+     * Display order, assigned once per address and never reset. Survives
+     * expiry: a device that advertises every 30s would otherwise be dropped by
+     * the 20s expiry and return as "new", jumping to the end of the list on
+     * every cycle. Not cleared, so ordering is stable for the whole session.
+     */
+    private val firstSeenOrder = mutableMapOf<String, Long>()
+
+    /**
      * When true, every advertisement is listed, not just probable tags. Off by
      * default because a BLE scan in a populated area is mostly headphones,
      * televisions and other people's phones.
@@ -101,7 +109,7 @@ class TrackrScanner(context: Context) {
             rssi = result.rssi,
             matchReason = reason,
             smoothedRssi = smoothed,
-            firstSeen = prev?.firstSeen ?: System.currentTimeMillis(),
+            firstSeen = firstSeenOrder.getOrPut(address) { System.currentTimeMillis() },
         ))
     }
 
@@ -154,6 +162,10 @@ class TrackrScanner(context: Context) {
             ?: "(unnamed)"
 
     /** Drop devices we haven't heard from recently so the list reflects reality. */
+    /**
+     * @param millis generous by design: plenty of devices advertise only every
+     * 10-30s, and dropping them between beacons makes the list flicker.
+     */
     fun expireOlderThan(millis: Long) {
         val cutoff = System.currentTimeMillis() - millis
         val kept = _sightings.value.filterValues { it.seenAt >= cutoff }

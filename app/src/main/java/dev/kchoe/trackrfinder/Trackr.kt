@@ -87,20 +87,17 @@ data class Sighting(
     /** Displayed dBm, smoothed so the number does not flicker. */
     val displayRssi: Int get() = smoothedRssi.roundToInt()
 
-    /**
-     * Coarse signal bucket. Sorting on this instead of the raw value means
-     * ordinary drift never reorders the list, but real movement still does.
-     */
-    val signalBucket: Int get() = (smoothedRssi / BUCKET_DB).roundToInt()
 
     companion object {
         const val TX_POWER_AT_1M = -59.0
         const val PATH_LOSS_EXPONENT = 2.5
 
-        /** Weight given to each new reading. Lower = smoother, slower. */
-        const val SMOOTHING = 0.25f
+        /**
+         * Weight given to each new reading. Applied per packet, and packets
+         * arrive ~25x/second, so 0.25 gave a time constant of ~0.2s -- no
+         * smoothing at all at human timescale. 0.05 settles over ~1-2s.
+         */
+        const val SMOOTHING = 0.05f
 
-        /** Sort bucket width in dB. Wider = more stable, less precise. */
-        const val BUCKET_DB = 6f
     }
 }

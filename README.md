@@ -83,6 +83,16 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 Requires JDK 17+, Android SDK 36. Tested on a Galaxy S25 Ultra (Android 16).
 
+## Not affiliated with TrackR
+
+This is an independent, unofficial project. It is not affiliated with,
+authorised by, or endorsed by TrackR Inc., Adero, or any successor. "TrackR" is
+used only to identify the hardware this software interoperates with. No TrackR
+branding, logos, or assets are included or reproduced here.
+
+TrackR discontinued service in 2021; this project exists so the hardware people
+already own does not become landfill.
+
 ## Licence
 
 MIT — see [LICENSE](LICENSE).
