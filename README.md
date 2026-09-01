@@ -75,6 +75,58 @@ service starts while the app is visible. The app is built that way deliberately.
 No release APK is published yet. Build it yourself (below), or wait for the
 F-Droid listing.
 
+## What has actually been tested
+
+Verified end-to-end on **one** device: a Galaxy S25 Ultra (SM-S938U), Android 16
+/ API 36, One UI.
+
+| Behaviour | Status |
+|---|---|
+| Scanning, proximity bar, distance | verified |
+| Ringing a TrackR Pixel | verified |
+| Battery read | verified |
+| Nicknames, persistence across reinstall | verified |
+| Leave-behind alert with the phone locked | verified |
+| Alert audible and vibrating from the lock screen | verified |
+| Watch surviving a reboot, app never opened | verified |
+| Recording a last-seen coordinate | verified |
+
+**Not tested at all:**
+
+- Any device other than the one above.
+- **Android 8 through 11.** `minSdk` is 26, but those versions take a different
+  code path: `BLUETOOTH_SCAN` does not exist before Android 12, so scanning is
+  gated on location permission instead, and the foreground-service rules differ.
+  That path compiles and is written to spec, but has never been executed.
+- Any tag other than a TrackR Pixel. The ring path is the standard Find Me
+  profile, so other Immediate Alert tags should work, but none were on hand.
+
+Reports from other devices are welcome via the issue tracker.
+
+## Tuning constants, and how portable they are
+
+Several timings were derived while debugging on real hardware. Some are
+platform facts, some are judgement calls:
+
+| Constant | Basis |
+|---|---|
+| 45 s scan-stop grace | Deliberately longer than Android's 30 s scan-start throttle window. Platform constant, portable. |
+| 2.5 s smoothing time constant | Derived from elapsed time rather than packet count, so it self-adjusts to any tag's advertising rate. Portable. |
+| 5 s watch tick | Cheap; portable. |
+| 45 s out-of-range window | **A judgement call.** Long enough that a moment's radio dropout does not cry wolf, on this device. A phone whose BLE scan duty-cycles more lazily may need longer; a stock Pixel could likely run tighter. |
+| 8 s scan settle | Grace before absence means anything, so a cold start does not flash a false alarm. |
+
+## If the alert stops firing
+
+Android's Doze whitelist is only half the story. Manufacturer battery managers
+are more aggressive and separate: on Samsung, check **Settings → Battery →
+Background usage limits** and make sure the app is not in *Sleeping apps*.
+Other vendors have equivalents — see <https://dontkillmyapp.com>.
+
+A leave-behind alert that has silently stopped is worse than none, so the
+in-app **Test alert** action exists to check it is still working without having
+to lose something first.
+
 ## Build
 
 ```sh

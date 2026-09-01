@@ -30,4 +30,12 @@ Location permission is used only to record where a tag was last heard, and
 nothing is ever transmitted off the device. The app requests no network
 permission at all.
 
+Tested end-to-end on a single device (Galaxy S25 Ultra, Android 16). Android 8
+to 11 take a different permission path that has not been exercised, and no tag
+other than a TrackR Pixel has been tried. Reports from other hardware are
+welcome on the issue tracker.
+
+If the leave-behind alert stops firing, the cause is usually the manufacturer's
+battery manager rather than the app; see the README.
+
 Not affiliated with, authorised by, or endorsed by TrackR Inc. or Adero.
