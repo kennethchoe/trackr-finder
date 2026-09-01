@@ -223,7 +223,9 @@ class MainActivity : ComponentActivity() {
             // scanner has not found anything yet, which flashed the red panel
             // for a second or two on a tag that was sitting right there.
             val hadTimeToLook = scanner.scanActiveMillis > SCAN_SETTLE_MS
-            if (w != null && hadTimeToLook && heardMillisAgo > WatchService.OUT_OF_RANGE_MS) {
+            val showingOutOfRange =
+                w != null && hadTimeToLook && heardMillisAgo > WatchService.OUT_OF_RANGE_MS
+            if (showingOutOfRange) {
                 LastSeenPanel(
                     label = nicknames[w] ?: prefs.watchedName ?: w,
                     lastSeenAt = lastSeenAt,
@@ -298,7 +300,27 @@ class MainActivity : ComponentActivity() {
             fun isTag(s: Sighting) = s.ringable || ringSupport[s.address] == true
             // Tags: stable order. There are only ever a few, so keeping a card
             // under the user's thumb matters more than ranking them by signal.
-            val list = all.filter(::isTag).sortedBy { it.firstSeen }
+            val liveTags = all.filter(::isTag).sortedBy { it.firstSeen }
+
+            // A watched tag must never vanish from the screen. Between losing
+            // contact and being declared gone there is a window where it is
+            // simply not being heard; showing nothing there reads as though the
+            // app forgot it. Fall back to its last known state instead.
+            val staleWatched = if (
+                w != null && !showingOutOfRange && liveTags.none { it.address == w }
+            ) {
+                Sighting(
+                    address = w,
+                    name = prefs.watchedAdvertisedName ?: prefs.watchedName ?: w,
+                    rssi = 0,
+                    seenAt = lastSeenAt,
+                    firstSeen = 0L,
+                )
+            } else null
+
+            // Watched tag first: it is the one the user came to look at.
+            val list = (listOfNotNull(staleWatched) + liveTags)
+                .sortedByDescending { it.address == w }
             // Others: discovery order, never signal. Any signal-derived ordering
             // churns -- with two dozen devices clustered within 10 dB, even a
             // bucketed sort reshuffles constantly as readings drift across
@@ -340,6 +362,7 @@ class MainActivity : ComponentActivity() {
                             status = "Test alert sent — lock the phone and try again"
                         },
                         isRinging = ringing == s.address,
+                        stale = s === staleWatched,
                         now = now,
                         onRing = { doRing(s) },
                         onStopRing = {
@@ -353,6 +376,7 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 prefs.watchedAddress = s.address
                                 prefs.watchedName = nicknames[s.address] ?: s.name
+                                prefs.watchedAdvertisedName = s.name
                                 prefs.watchEnabled = true
                                 watched = s.address
                                 alertsOn = true
@@ -614,6 +638,8 @@ private fun DeviceCard(
     onWatch: () -> Unit,
     onRename: () -> Unit,
     onTestAlert: () -> Unit,
+    /** True when this is a watched tag we are not currently hearing. */
+    stale: Boolean = false,
 ) {
     val renamed = label != sighting.name
     Card {
@@ -638,20 +664,39 @@ private fun DeviceCard(
             }
             Spacer(Modifier.height(10.dp))
 
-            LinearProgressIndicator(
-                progress = { sighting.closeness },
-                modifier = Modifier.fillMaxWidth().height(10.dp),
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "≈%.1f m  ·  %d dBm  ·  %s".format(
-                    sighting.approxMeters,
-                    sighting.displayRssi,
-                    SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(sighting.seenAt)),
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (stale) {
+                // An indeterminate bar, not a stale distance: showing the last
+                // known metres as though current would be a quiet lie.
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(10.dp))
+                Spacer(Modifier.height(6.dp))
+                val ago = if (sighting.seenAt <= 0L) null
+                    else (System.currentTimeMillis() - sighting.seenAt) / 1000
+                Text(
+                    when {
+                        ago == null -> "Listening…"
+                        ago < 60 -> "Listening… last heard ${ago}s ago"
+                        else -> "Listening… last heard ${ago / 60} min ago"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                LinearProgressIndicator(
+                    progress = { sighting.closeness },
+                    modifier = Modifier.fillMaxWidth().height(10.dp),
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "≈%.1f m  ·  %d dBm  ·  %s".format(
+                        sighting.approxMeters,
+                        sighting.displayRssi,
+                        SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+                            .format(Date(sighting.seenAt)),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Text(
                 sighting.address,
                 style = MaterialTheme.typography.bodySmall,

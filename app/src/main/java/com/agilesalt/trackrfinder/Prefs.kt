@@ -33,9 +33,17 @@ class Prefs(context: Context) {
 
     /** Forget the tracked tag entirely, keeping nicknames and probe results. */
     fun forgetWatch() = sp.edit()
-        .remove("addr").remove("name").remove(KEY_WATCH_ENABLED)
+        .remove("addr").remove("name").remove("adv_name").remove(KEY_WATCH_ENABLED)
         .remove("seen_at").remove("lat").remove("lon")
         .apply()
+
+    /**
+     * The tag's own advertised name, kept alongside the nickname so a card
+     * rendered from stored state looks identical to a live one.
+     */
+    var watchedAdvertisedName: String?
+        get() = sp.getString("adv_name", null)
+        set(v) = sp.edit().putString("adv_name", v).apply()
 
     var lastSeenAt: Long
         get() = sp.getLong("seen_at", 0L)
