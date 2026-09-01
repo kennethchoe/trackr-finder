@@ -23,7 +23,8 @@ class BootReceiver : BroadcastReceiver() {
             intent.action != Intent.ACTION_LOCKED_BOOT_COMPLETED
         ) return
 
-        if (Prefs(context).watchedAddress == null) {
+        val prefs = Prefs(context)
+        if (prefs.watchedAddress == null || !prefs.watchEnabled) {
             Log.i(TAG, "boot: no watch armed, nothing to restart")
             return
         }

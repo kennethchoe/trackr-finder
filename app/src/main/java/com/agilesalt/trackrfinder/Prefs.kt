@@ -14,6 +14,29 @@ class Prefs(context: Context) {
         get() = sp.getString("name", null)
         set(v) = sp.edit().putString("name", v).apply()
 
+    /**
+     * Whether alerts are armed. Deliberately separate from watchedAddress:
+     * turning alerts off must not discard which tag we care about, or where it
+     * was last heard. Losing that to a mis-tap would destroy exactly the
+     * information the user opened the app to read.
+     */
+    var watchEnabled: Boolean
+        // Migration: before this key existed, having an address meant alerts
+        // were on. Defaulting to false would have silently disarmed an already
+        // armed watch on upgrade, with nothing in the UI to say so.
+        get() = if (sp.contains(KEY_WATCH_ENABLED)) {
+            sp.getBoolean(KEY_WATCH_ENABLED, false)
+        } else {
+            watchedAddress != null
+        }
+        set(v) = sp.edit().putBoolean(KEY_WATCH_ENABLED, v).apply()
+
+    /** Forget the tracked tag entirely, keeping nicknames and probe results. */
+    fun forgetWatch() = sp.edit()
+        .remove("addr").remove("name").remove(KEY_WATCH_ENABLED)
+        .remove("seen_at").remove("lat").remove("lon")
+        .apply()
+
     var lastSeenAt: Long
         get() = sp.getLong("seen_at", 0L)
         set(v) = sp.edit().putLong("seen_at", v).apply()
@@ -86,5 +109,6 @@ class Prefs(context: Context) {
     private companion object {
         const val NICK_PREFIX = "nick_"
         const val RING_PREFIX = "ring_"
+        const val KEY_WATCH_ENABLED = "watch_enabled"
     }
 }

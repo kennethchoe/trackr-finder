@@ -80,7 +80,7 @@ class WatchService : Service() {
             return START_NOT_STICKY
         }
         address = prefs.watchedAddress
-        if (address == null) {
+        if (address == null || !prefs.watchEnabled) {
             stopSelf()
             return START_NOT_STICKY
         }

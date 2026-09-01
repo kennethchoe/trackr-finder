@@ -114,6 +114,7 @@ class MainActivity : ComponentActivity() {
         var ringing by remember { mutableStateOf<String?>(null) }
         var batteries by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
         var watched by remember { mutableStateOf(prefs.watchedAddress) }
+        var alertsOn by remember { mutableStateOf(prefs.watchEnabled) }
         var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
         var nicknames by remember { mutableStateOf(prefs.allNicknames()) }
         var renaming by remember { mutableStateOf<Sighting?>(null) }
@@ -240,9 +241,23 @@ class MainActivity : ComponentActivity() {
                             }.onFailure { status = "No map app installed" }
                         }
                     },
-                    onUnwatch = {
-                        prefs.watchedAddress = null
+                    alertsOn = alertsOn,
+                    onToggleAlerts = {
+                        if (alertsOn) {
+                            prefs.watchEnabled = false
+                            alertsOn = false
+                            WatchService.stop(this@MainActivity)
+                        } else {
+                            prefs.watchEnabled = true
+                            alertsOn = true
+                            WatchService.start(this@MainActivity, withLocation = true)
+                        }
+                        status = null
+                    },
+                    onForget = {
+                        prefs.forgetWatch()
                         watched = null
+                        alertsOn = false
                         WatchService.stop(this@MainActivity)
                         status = null
                     },
@@ -313,7 +328,7 @@ class MainActivity : ComponentActivity() {
                         sighting = s,
                         label = nicknames[s.address] ?: s.name,
                         battery = batteries[s.address],
-                        isWatched = watched == s.address,
+                        isWatched = alertsOn && watched == s.address,
                         onRename = { renaming = s },
                         onTestAlert = {
                             WatchService.testAlert(this@MainActivity)
@@ -326,18 +341,19 @@ class MainActivity : ComponentActivity() {
                             ringer.stopRinging(s.address) { status = "Alert off" }
                         },
                         onWatch = {
-                            if (watched == s.address) {
-                                prefs.watchedAddress = null
-                                watched = null
+                            if (alertsOn && watched == s.address) {
+                                prefs.watchEnabled = false
+                                alertsOn = false
                                 WatchService.stop(this@MainActivity)
-                                status = null
                             } else {
                                 prefs.watchedAddress = s.address
                                 prefs.watchedName = nicknames[s.address] ?: s.name
+                                prefs.watchEnabled = true
                                 watched = s.address
+                                alertsOn = true
                                 WatchService.start(this@MainActivity, withLocation = true)
-                                status = null
                             }
+                            status = null
                         },
                     )
                 }
@@ -445,8 +461,10 @@ private fun LastSeenPanel(
     label: String,
     lastSeenAt: Long,
     location: Pair<Double, Double>?,
+    alertsOn: Boolean,
     onOpenMap: () -> Unit,
-    onUnwatch: () -> Unit,
+    onToggleAlerts: () -> Unit,
+    onForget: () -> Unit,
 ) {
     Card(colors = CardDefaults.cardColors(
         containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -501,6 +519,15 @@ private fun LastSeenPanel(
                 )
             }
 
+            if (!alertsOn) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Alerts are off. This is still the last place it was heard.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (location != null) {
@@ -508,9 +535,15 @@ private fun LastSeenPanel(
                         Text("Open in Maps", maxLines = 1)
                     }
                 }
-                OutlinedButton(onClick = onUnwatch, modifier = Modifier.weight(1f)) {
-                    Text("Stop alerting", maxLines = 1)
+                OutlinedButton(onClick = onToggleAlerts, modifier = Modifier.weight(1f)) {
+                    Text(if (alertsOn) "Stop alerting" else "Resume alerts", maxLines = 1)
                 }
+            }
+            // Forget is the only destructive action here and is deliberately
+            // the quietest: stopping alerts must not throw away the last known
+            // position, which is what the panel exists to show.
+            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = onForget) { Text("Forget this tag", maxLines = 1) }
             }
         }
     }
