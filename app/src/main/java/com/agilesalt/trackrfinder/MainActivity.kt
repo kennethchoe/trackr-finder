@@ -195,7 +195,7 @@ class MainActivity : ComponentActivity() {
                         prefs.watchedAddress = null
                         watched = null
                         WatchService.stop(this@MainActivity)
-                        status = "Alerts off"
+                        status = null
                     },
                 )
                 Spacer(Modifier.height(16.dp))
@@ -281,13 +281,13 @@ class MainActivity : ComponentActivity() {
                                 prefs.watchedAddress = null
                                 watched = null
                                 WatchService.stop(this@MainActivity)
-                                status = "Alerts off"
+                                status = null
                             } else {
                                 prefs.watchedAddress = s.address
                                 prefs.watchedName = nicknames[s.address] ?: s.name
                                 watched = s.address
                                 WatchService.start(this@MainActivity)
-                                status = "Will alert if left behind"
+                                status = null
                             }
                         },
                     )
