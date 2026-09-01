@@ -222,7 +222,7 @@ class MainActivity : ComponentActivity() {
             // scanner has not found anything yet, which flashed the red panel
             // for a second or two on a tag that was sitting right there.
             val hadTimeToLook = scanner.scanActiveMillis > SCAN_SETTLE_MS
-            if (w != null && hadTimeToLook && heardMillisAgo > WatchService.IN_RANGE_WINDOW_MS) {
+            if (w != null && hadTimeToLook && heardMillisAgo > WatchService.OUT_OF_RANGE_MS) {
                 LastSeenPanel(
                     label = nicknames[w] ?: prefs.watchedName ?: w,
                     lastSeenAt = lastSeenAt,

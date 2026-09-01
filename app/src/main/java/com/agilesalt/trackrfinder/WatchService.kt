@@ -46,6 +46,16 @@ class WatchService : Service() {
     /** Whether this service instance holds the location capability. */
     private var locationAllowed = false
 
+    /**
+     * When the tag first went quiet past the window. Silence alone is not
+     * proof: at the edge of range gaps of over a minute occur on a tag sitting
+     * in the same room (measured: median gap 2.2s, but a maximum of 78s at
+     * -85 dBm). So before alerting we escalate to the most sensitive scan mode
+     * and require continued silence, rather than simply widening the window
+     * and making every genuine alert later.
+     */
+    private var confirmingSince = 0L
+
     /** Nickname if the user set one, else whatever we stored at watch time. */
     private val label: String
         get() = address?.let { prefs.nickname(it) } ?: prefs.watchedName ?: "Tracker"
@@ -104,6 +114,12 @@ class WatchService : Service() {
                     prefs.lastSeenAt = sighting.seenAt
                     recordLocation()
                     seenSinceStart = true
+                    if (confirmingSince > 0L) {
+                        // Heard it again during confirmation: a weak link, not
+                        // a departure. Drop back to the cheaper scan mode.
+                        confirmingSince = 0L
+                        scanner.start(addr, TrackrScanner.Mode.BALANCED)
+                    }
                     if (!wasInRange) {
                         wasInRange = true
                         notificationManager.cancel(NOTIF_ALERT)
@@ -117,8 +133,21 @@ class WatchService : Service() {
                     )
                 } else {
                     if (wasInRange && seenSinceStart) {
-                        wasInRange = false
-                        notifyLeftBehind()
+                        when {
+                            // First silence past the window: listen harder
+                            // before concluding anything.
+                            confirmingSince == 0L -> {
+                                confirmingSince = now
+                                scanner.start(addr, TrackrScanner.Mode.LOW_LATENCY)
+                            }
+                            // Still nothing at maximum sensitivity: it is gone.
+                            now - confirmingSince >= CONFIRM_MS -> {
+                                wasInRange = false
+                                confirmingSince = 0L
+                                scanner.start(addr, TrackrScanner.Mode.BALANCED)
+                                notifyLeftBehind()
+                            }
+                        }
                     }
                     notificationManager.notify(
                         NOTIF_ONGOING,
@@ -275,6 +304,12 @@ class WatchService : Service() {
          * used different sources and could disagree indefinitely.
          */
         const val IN_RANGE_WINDOW_MS = 45_000L
+
+        /** Extra silence required, at maximum scan sensitivity, before alerting. */
+        const val CONFIRM_MS = 20_000L
+
+        /** What the UI should treat as out of range, so it agrees with the alert. */
+        const val OUT_OF_RANGE_MS = IN_RANGE_WINDOW_MS + CONFIRM_MS
         private const val EXPIRE_MS = 300_000L
 
         const val EXTRA_WITH_LOCATION = "with_location"
