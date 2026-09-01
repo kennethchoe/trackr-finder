@@ -15,6 +15,13 @@ import android.util.Log
 
 sealed interface RingResult {
     data class Success(val batteryPct: Int?) : RingResult
+
+    /**
+     * Connected and enumerated services, but the device has no Immediate Alert.
+     * A definitive answer -- unlike Failure, which may just be range or timing.
+     */
+    data object Unsupported : RingResult
+
     data class Failure(val reason: String) : RingResult
 }
 
@@ -84,7 +91,7 @@ class Ringer(private val context: Context) {
             val alert = g.getService(Trackr.IMMEDIATE_ALERT)
                 ?.getCharacteristic(Trackr.ALERT_LEVEL)
             if (alert == null) {
-                finish(RingResult.Failure("No Immediate Alert Service -- not a TrackR?")); return
+                finish(RingResult.Unsupported); return
             }
             writeAlert(g, alert, pendingLevel)
         }

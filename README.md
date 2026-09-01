@@ -22,8 +22,13 @@ authentication** — the Find Me profile is unauthenticated by design.
 Protocol confirmed against Daniel Weidman's Web Bluetooth proof-of-concept:
 <https://github.com/danielweidman/TrackR-Web-Bluetooth-API>
 
-Because this is a standard profile and not a TrackR-specific hack, the app
-should work with any BLE tag implementing Immediate Alert.
+The ring/battery mechanism is therefore not TrackR-specific. Anything
+implementing Immediate Alert can be rung — including many cheap "iTag" style
+trackers, and a surprising number of headphones and wearables, since Find Me
+ships in the Nordic and TI reference stacks.
+
+Tile, AirTag and Samsung SmartTag cannot be rung: their alert commands are
+authenticated against a key provisioned to the owner's account.
 
 ## Features
 
@@ -32,6 +37,8 @@ should work with any BLE tag implementing Immediate Alert.
 - Battery percentage, read opportunistically during the ring connection
 - **Rename** — a local nickname per device, keyed by MAC. Useful because every
   Pixel advertises as plain `tkr`, so they are otherwise indistinguishable
+- **Show all Bluetooth devices** — a diagnostic drawer listing every advertiser,
+  with a "Try ringing" probe. Devices proven ringable are promoted to full cards
 - **"Alert me if I leave this behind"** — a foreground service watches one
   tracker, notifies you when it drops out of range, and records the last GPS
   coordinate where it was heard
@@ -45,7 +52,14 @@ should work with any BLE tag implementing Immediate Alert.
   something you walked away from, useless if the tracker is what moved.
 - **React to the tracker's button.** Never publicly reverse-engineered.
 
-## Two implementation notes
+## Three implementation notes
+
+**Ring capability cannot be read from an advertisement.** The BLE advertising
+packet is 31 bytes and most devices do not list their full service set in it —
+the GATT service list is only visible after connecting. So rather than guessing,
+ringing doubles as the probe: a successful ring or a definitive "no Immediate
+Alert" is cached per MAC, and the UI promotes or demotes the device accordingly.
+
 
 **Background scanning requires a `ScanFilter`.** Android returns nothing from
 unfiltered BLE scans once the screen is off. Discovery therefore uses an

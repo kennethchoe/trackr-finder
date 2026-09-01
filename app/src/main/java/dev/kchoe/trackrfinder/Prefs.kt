@@ -53,9 +53,30 @@ class Prefs(context: Context) {
     fun label(address: String, advertised: String?): String =
         nickname(address) ?: advertised ?: address
 
+    /**
+     * What we learned by actually connecting: true = has Immediate Alert,
+     * false = definitively does not, null = never probed. Advertisements cannot
+     * answer this, so it is only ever set from a real GATT service discovery.
+     */
+    fun ringSupport(address: String): Boolean? =
+        if (sp.contains(ringKey(address))) sp.getBoolean(ringKey(address), false) else null
+
+    fun setRingSupport(address: String, supported: Boolean) =
+        sp.edit().putBoolean(ringKey(address), supported).apply()
+
+    fun allRingSupport(): Map<String, Boolean> = sp.all
+        .filterKeys { it.startsWith(RING_PREFIX) }
+        .mapNotNull { (k, v) -> (v as? Boolean)?.let { k.removePrefix(RING_PREFIX) to it } }
+        .toMap()
+
+    private fun ringKey(address: String) = "$RING_PREFIX$address"
+
     private fun nickKey(address: String) = "$NICK_PREFIX$address"
 
     fun clear() = sp.edit().clear().apply()
 
-    private companion object { const val NICK_PREFIX = "nick_" }
+    private companion object {
+        const val NICK_PREFIX = "nick_"
+        const val RING_PREFIX = "ring_"
+    }
 }

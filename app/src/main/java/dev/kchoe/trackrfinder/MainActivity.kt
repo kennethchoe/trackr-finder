@@ -75,6 +75,8 @@ class MainActivity : ComponentActivity() {
         var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
         var nicknames by remember { mutableStateOf(prefs.allNicknames()) }
         var renaming by remember { mutableStateOf<Sighting?>(null) }
+        var showAll by remember { mutableStateOf(false) }
+        var ringSupport by remember { mutableStateOf(prefs.allRingSupport()) }
         var lastSeenAt by remember { mutableLongStateOf(prefs.lastSeenAt) }
         var lastLoc by remember {
             mutableStateOf(if (prefs.hasLocation) prefs.lastLat to prefs.lastLon else null)
@@ -117,7 +119,25 @@ class MainActivity : ComponentActivity() {
                 scanning = granted && scanner.bluetoothEnabled,
                 foundCount = found,
             )
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(14.dp))
+
+            if (granted) {
+                FilterChip(
+                    selected = showAll,
+                    onClick = {
+                        showAll = !showAll
+                        scanner.showAll = showAll
+                    },
+                    label = {
+                        Text(
+                            if (showAll) "Showing all Bluetooth devices"
+                            else "Show all Bluetooth devices",
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                    },
+                )
+                Spacer(Modifier.height(14.dp))
+            }
 
             if (!granted) {
                 Button(onClick = { launcher.launch(requiredPermissions()) }) {
@@ -168,14 +188,51 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.height(16.dp))
             }
 
-            val list = sightings.values.sortedByDescending { it.rssi }
+            // Ringing doubles as the capability probe: the advertisement cannot
+            // tell us whether a device speaks Immediate Alert, but a real GATT
+            // service discovery can, so we record what we learn.
+            val doRing: (Sighting) -> Unit = { s ->
+                ringing = s.address
+                status = "Connecting…"
+                ringer.ring(s.address) { result ->
+                    ringing = null
+                    when (result) {
+                        is RingResult.Success -> {
+                            prefs.setRingSupport(s.address, true)
+                            ringSupport = prefs.allRingSupport()
+                            result.batteryPct?.let {
+                                batteries = batteries + (s.address to it)
+                            }
+                            status = "Ringing ${nicknames[s.address] ?: s.name}"
+                        }
+                        RingResult.Unsupported -> {
+                            prefs.setRingSupport(s.address, false)
+                            ringSupport = prefs.allRingSupport()
+                            status = "${s.name} has no Immediate Alert — cannot be rung"
+                        }
+                        is RingResult.Failure -> status = result.reason
+                    }
+                }
+            }
+
+            val all = sightings.values.sortedByDescending { it.rssi }
+            // A device is a "tag" if it advertised Immediate Alert, has a known
+            // tag name, or we proved it ringable by connecting once.
+            fun isTag(s: Sighting) = s.ringable || ringSupport[s.address] == true
+            val list = all.filter(::isTag)
+            val others = all.filterNot(::isTag)
             if (list.isEmpty()) {
                 Spacer(Modifier.height(24.dp))
                 Text("Nothing yet.", style = MaterialTheme.typography.bodyLarge)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "A Pixel that has sat unused for years is most likely out of "
-                        + "battery — it takes a CR2016. Press its button to wake it.",
+                    if (showAll)
+                        "No Bluetooth devices are advertising nearby."
+                    else
+                        "No tags found. A Pixel that has sat unused for years is "
+                            + "most likely out of battery — it takes a CR2016. "
+                            + "Press its button to wake it, or show all Bluetooth "
+                            + "devices to look for other tags.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -191,22 +248,7 @@ class MainActivity : ComponentActivity() {
                         onRename = { renaming = s },
                         isRinging = ringing == s.address,
                         now = now,
-                        onRing = {
-                            ringing = s.address
-                            status = "Connecting…"
-                            ringer.ring(s.address) { result ->
-                                ringing = null
-                                status = when (result) {
-                                    is RingResult.Success -> {
-                                        result.batteryPct?.let {
-                                            batteries = batteries + (s.address to it)
-                                        }
-                                        "Ringing ${s.name}"
-                                    }
-                                    is RingResult.Failure -> result.reason
-                                }
-                            }
-                        },
+                        onRing = { doRing(s) },
                         onStopRing = {
                             ringer.stopRinging(s.address) { status = "Alert off" }
                         },
@@ -225,6 +267,33 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                     )
+                }
+
+                if (others.isNotEmpty()) {
+                    item {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Other Bluetooth devices",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            "Not known to be tags. Ringing works on anything that "
+                                + "implements Immediate Alert, which can only be "
+                                + "confirmed by connecting.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                    }
+                    items(others, key = { it.address }) { s ->
+                        CompactRow(
+                            sighting = s,
+                            probed = ringSupport[s.address],
+                            busy = ringing == s.address,
+                            onTryRing = { doRing(s) },
+                        )
+                    }
                 }
             }
         }
@@ -253,6 +322,51 @@ class MainActivity : ComponentActivity() {
  * THIS PHONE was, not where the tracker is -- the difference decides whether
  * the number is useful or misleading.
  */
+/**
+ * A device we have no reason to believe is a tag. Deliberately minimal: no
+ * rename, no leave-behind switch. Offering to alert you when you walk away
+ * from someone else's soundbar is not a feature.
+ */
+@Composable
+private fun CompactRow(
+    sighting: Sighting,
+    probed: Boolean?,
+    busy: Boolean,
+    onTryRing: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                sighting.name,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+            )
+            Text(
+                "%d dBm  ·  %s".format(sighting.rssi, sighting.address),
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (probed == false) {
+                Text(
+                    "No Immediate Alert — cannot be rung",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        if (probed != false) {
+            TextButton(onClick = onTryRing, enabled = !busy) {
+                Text(if (busy) "…" else "Try ringing", maxLines = 1)
+            }
+        }
+    }
+}
+
 @Composable
 private fun LastSeenPanel(
     label: String,

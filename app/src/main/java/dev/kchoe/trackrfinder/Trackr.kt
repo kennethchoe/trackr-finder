@@ -18,6 +18,14 @@ object Trackr {
     /** Pixels advertise as "tkr" + a device-specific suffix. */
     const val NAME_PREFIX = "tkr"
 
+    /**
+     * Name prefixes of tags known to implement Find Me. Only a fallback: the
+     * reliable signal is the device advertising Immediate Alert directly, but
+     * plenty of cheap tags omit it from the advertisement and expose it only
+     * after connecting, where a scan filter cannot see it.
+     */
+    val KNOWN_TAG_PREFIXES = listOf("tkr", "itag", "tag", "nut", "keyfinder")
+
     const val ALERT_OFF: Byte = 0x00
     const val ALERT_MILD: Byte = 0x01
     const val ALERT_HIGH: Byte = 0x02
@@ -27,6 +35,23 @@ object Trackr {
 
     fun isTrackr(name: String?): Boolean =
         name?.trim()?.lowercase()?.startsWith(NAME_PREFIX) == true
+
+    fun isKnownTagName(name: String?): Boolean {
+        val n = name?.trim()?.lowercase() ?: return false
+        return KNOWN_TAG_PREFIXES.any { n.startsWith(it) }
+    }
+}
+
+/** Why a device earned a place in the list. Drives both UI and re-filtering. */
+enum class MatchReason {
+    /** Advertised Immediate Alert -- we know it can be rung. */
+    ALERT_SERVICE,
+
+    /** Name looks like a known tag family. Probably ringable. */
+    KNOWN_NAME,
+
+    /** Only visible because the user asked to see everything. */
+    SHOW_ALL,
 }
 
 /** One observation of a device from a BLE advertisement. */
@@ -35,7 +60,11 @@ data class Sighting(
     val name: String,
     val rssi: Int,
     val seenAt: Long = System.currentTimeMillis(),
+    val matchReason: MatchReason = MatchReason.KNOWN_NAME,
 ) {
+    /** True when we have positive evidence the device can be rung. */
+    val ringable: Boolean get() = matchReason != MatchReason.SHOW_ALL
+
     val ageMillis: Long get() = System.currentTimeMillis() - seenAt
 
     /**

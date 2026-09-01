@@ -35,6 +35,21 @@ class TrackrScanner(context: Context) {
 
     private var scanning = false
 
+    /**
+     * When true, every advertisement is listed, not just probable tags. Off by
+     * default because a BLE scan in a populated area is mostly headphones,
+     * televisions and other people's phones.
+     */
+    var showAll: Boolean = false
+        set(value) {
+            field = value
+            if (!value) {
+                // Drop entries that were only there because of this toggle.
+                _sightings.value = _sightings.value
+                    .filterValues { it.matchReason != MatchReason.SHOW_ALL }
+            }
+        }
+
     val bluetoothEnabled: Boolean get() = adapter?.isEnabled == true
 
     private val callback = object : ScanCallback() {
@@ -51,19 +66,33 @@ class TrackrScanner(context: Context) {
     }
 
     private fun record(result: ScanResult) {
+        val record = result.scanRecord
         // device.name requires BLUETOOTH_CONNECT on some builds and can be null
         // before a connection; the advertised name in the scan record does not.
-        val name = result.scanRecord?.deviceName ?: runCatching { result.device.name }.getOrNull()
-        if (BuildConfig.DEBUG) {
-            Log.d(TAG, "adv ${result.device.address} name=${name ?: "<none>"} rssi=${result.rssi}")
+        val name = record?.deviceName ?: runCatching { result.device.name }.getOrNull()
+
+        // The authoritative signal: the device says it speaks Immediate Alert.
+        val advertisesAlert =
+            record?.serviceUuids?.any { it.uuid == Trackr.IMMEDIATE_ALERT } == true
+
+        val reason = when {
+            advertisesAlert -> MatchReason.ALERT_SERVICE
+            Trackr.isKnownTagName(name) -> MatchReason.KNOWN_NAME
+            showAll -> MatchReason.SHOW_ALL
+            else -> return
         }
-        if (!Trackr.isTrackr(name)) return
+
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "adv ${result.device.address} name=${name ?: "<none>"} " +
+                "rssi=${result.rssi} match=$reason")
+        }
 
         val address = result.device.address
         _sightings.value = _sightings.value + (address to Sighting(
             address = address,
-            name = name!!.trim(),
+            name = displayName(name),
             rssi = result.rssi,
+            matchReason = reason,
         ))
     }
 
@@ -103,6 +132,17 @@ class TrackrScanner(context: Context) {
         }
         scanning = false
     }
+
+    /**
+     * Advertised names are arbitrary bytes. Some devices broadcast control
+     * characters or padding that survive trim() and render as an invisible
+     * title, so require at least one visible character before trusting it.
+     */
+    private fun displayName(raw: String?): String =
+        raw?.filterNot { it.isISOControl() }
+            ?.trim()
+            ?.takeIf { candidate -> candidate.any { it.isLetterOrDigit() } }
+            ?: "(unnamed)"
 
     /** Drop devices we haven't heard from recently so the list reflects reality. */
     fun expireOlderThan(millis: Long) {
