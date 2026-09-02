@@ -21,6 +21,9 @@ import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Keeps a filtered BLE scan alive so the phone notices when a tag stops
@@ -54,6 +57,9 @@ class WatchService : Service() {
      */
     private var confirmingSince = 0L
 
+    /** When contact resumed after an alert; a return has to be sustained. */
+    private var backSince = 0L
+
     /** Nickname if the user set one, else whatever we stored at watch time. */
     private val label: String
         get() = address?.let { prefs.nickname(it) } ?: prefs.watchedName ?: "Tracker"
@@ -73,8 +79,8 @@ class WatchService : Service() {
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_TEST) {
-            address = prefs.watchedAddress
-            notifyLeftBehind()
+            notifyTest()
+            if (address == null) stopSelf()
             return START_NOT_STICKY
         }
         val next = prefs.watchedAddress
@@ -90,6 +96,8 @@ class WatchService : Service() {
             wasInRange = true
             seenSinceStart = false
             confirmingSince = 0L
+            backSince = 0L
+            _outOfRange.value = null
             notificationManager.cancel(NOTIF_ALERT)
         }
         address = next
@@ -114,22 +122,29 @@ class WatchService : Service() {
             if (addr != null && !scanner.bluetoothEnabled) {
                 // Cannot observe; therefore cannot conclude.
                 confirmingSince = 0L
+                backSince = 0L
                 suspendedUntil = System.currentTimeMillis() + RADIO_GRACE_MS
+                _outOfRange.value = null
                 notificationManager.notify(
                     NOTIF_ONGOING,
                     ongoingNotification("$label — waiting for Bluetooth", null),
                 )
             } else if (addr != null && System.currentTimeMillis() < suspendedUntil) {
+                _outOfRange.value = null
                 notificationManager.notify(
                     NOTIF_ONGOING,
                     ongoingNotification("$label — reconnecting", null),
                 )
             } else if (addr != null) {
-                val sighting = scanner.sightings.value[addr]
                 val now = System.currentTimeMillis()
+                val sighting = scanner.sightings.value[addr]
+                // The open screen runs its own scan; either radio hearing the
+                // tag counts, so the alert cannot contradict what is on screen.
+                sighting?.let { if (it.seenAt > prefs.lastSeenAt) prefs.lastSeenAt = it.seenAt }
+                val lastHeard = prefs.lastSeenAt
+                val silentFor = if (lastHeard == 0L) Long.MAX_VALUE else now - lastHeard
 
-                if (sighting != null && sighting.ageMillis < IN_RANGE_WINDOW_MS) {
-                    prefs.lastSeenAt = sighting.seenAt
+                if (silentFor < IN_RANGE_WINDOW_MS) {
                     recordLocation()
                     seenSinceStart = true
                     if (confirmingSince > 0L) {
@@ -137,39 +152,55 @@ class WatchService : Service() {
                         confirmingSince = 0L
                         scanner.start(addr, TrackrScanner.Mode.BALANCED)
                     }
-                    if (!wasInRange) {
-                        wasInRange = true
-                        notificationManager.cancel(NOTIF_ALERT)
+                }
+
+                if (!wasInRange) {
+                    // A stray packet at the edge of range is not a return. Taken
+                    // as one it re-arms the watch, which alerts again a minute
+                    // later, and again, for a tag that never actually came back.
+                    // Contact shows on screen straight away; only re-arming waits.
+                    if (silentFor < RETURN_FRESH_MS) {
+                        if (backSince == 0L) backSince = now
+                        if (now - backSince >= RETURN_MS) {
+                            wasInRange = true
+                            backSince = 0L
+                            notifyBack()
+                        }
+                    } else {
+                        backSince = 0L
                     }
-                    notificationManager.notify(
-                        NOTIF_ONGOING,
-                        ongoingNotification(
-                            "$label is nearby",
-                            "%.0f m away  ·  %d dBm".format(sighting.approxMeters, sighting.rssi),
-                        ),
-                    )
-                } else {
-                    if (wasInRange && seenSinceStart) {
-                        when {
-                            // Listen harder before concluding anything.
-                            confirmingSince == 0L -> {
-                                confirmingSince = now
-                                scanner.start(addr, TrackrScanner.Mode.LOW_LATENCY)
-                            }
-                            // Still nothing at maximum sensitivity.
-                            now - confirmingSince >= CONFIRM_MS -> {
-                                wasInRange = false
-                                confirmingSince = 0L
-                                scanner.start(addr, TrackrScanner.Mode.BALANCED)
-                                notifyLeftBehind()
-                            }
+                } else if (silentFor >= IN_RANGE_WINDOW_MS && seenSinceStart) {
+                    when {
+                        // Listen harder before concluding anything.
+                        confirmingSince == 0L -> {
+                            confirmingSince = now
+                            scanner.start(addr, TrackrScanner.Mode.LOW_LATENCY)
+                        }
+                        // Still nothing at maximum sensitivity.
+                        now - confirmingSince >= CONFIRM_MS -> {
+                            wasInRange = false
+                            confirmingSince = 0L
+                            scanner.start(addr, TrackrScanner.Mode.BALANCED)
+                            notifyLeftBehind()
                         }
                     }
-                    notificationManager.notify(
-                        NOTIF_ONGOING,
-                        ongoingNotification("$label out of range", lastSeenLine()),
-                    )
                 }
+
+                val gone = !wasInRange && backSince == 0L
+                _outOfRange.value = gone
+                val live = sighting?.takeIf { it.ageMillis < IN_RANGE_WINDOW_MS }
+                notificationManager.notify(
+                    NOTIF_ONGOING,
+                    when {
+                        !seenSinceStart -> ongoingNotification("Watching $label", "Not seen yet")
+                        gone -> ongoingNotification("$label out of range", lastSeenLine())
+                        live != null -> ongoingNotification(
+                            "$label is nearby",
+                            "%.0f m away  ·  %d dBm".format(live.approxMeters, live.rssi),
+                        )
+                        else -> ongoingNotification("$label is nearby", lastSeenLine())
+                    },
+                )
                 scanner.expireOlderThan(EXPIRE_MS)
             }
             handler.postDelayed(this, TICK_MS)
@@ -200,16 +231,40 @@ class WatchService : Service() {
         } else "Last seen $when_"
     }
 
-    private fun notifyLeftBehind() {
+    private fun alertNotification(body: String) = NotificationCompat.Builder(this, CHANNEL_ALERT)
+        .setContentTitle("$label left behind")
+        .setContentText(body)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+        .setSmallIcon(android.R.drawable.stat_sys_warning)
+        .setCategory(NotificationCompat.CATEGORY_ALARM)
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+        .setDefaults(NotificationCompat.DEFAULT_ALL)  // pre-Oreo path
+        .setAutoCancel(true)
+        .setContentIntent(openAppIntent())
+
+    private fun notifyLeftBehind() =
+        notificationManager.notify(NOTIF_ALERT, alertNotification(lastSeenLine()).build())
+
+    private fun notifyTest() = notificationManager.notify(
+        NOTIF_TEST,
+        alertNotification(
+            "This is a test. You will get an alert like this when you leave "
+                + "this tag behind, even when the phone is locked."
+        ).build(),
+    )
+
+    /**
+     * Replaces the alert rather than cancelling it, so the shade still records
+     * that the tag was left behind and says how that ended.
+     */
+    private fun notifyBack() {
         val n = NotificationCompat.Builder(this, CHANNEL_ALERT)
-            .setContentTitle("$label left behind")
-            .setContentText(lastSeenLine())
-            .setStyle(NotificationCompat.BigTextStyle().bigText(lastSeenLine()))
-            .setSmallIcon(android.R.drawable.stat_sys_warning)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentTitle("$label is back")
+            .setContentText("Was out of range. Back in range now.")
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)  // pre-Oreo path
+            .setOnlyAlertOnce(true)  // an update, not a new event
             .setAutoCancel(true)
             .setContentIntent(openAppIntent())
             .build()
@@ -246,6 +301,7 @@ class WatchService : Service() {
         get() = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
     private fun stopForegroundAndSelf() {
+        _outOfRange.value = null
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         stopSelf()
     }
@@ -298,6 +354,7 @@ class WatchService : Service() {
     }
 
     override fun onDestroy() {
+        _outOfRange.value = null
         handler.removeCallbacksAndMessages(null)
         scanner.release()
         super.onDestroy()
@@ -312,7 +369,18 @@ class WatchService : Service() {
         private const val CHANNEL_ALERT = "left_behind_v2"
         private const val NOTIF_ONGOING = 1
         private const val NOTIF_ALERT = 2
+        // Its own id, so a test never overwrites or clears a real alert.
+        private const val NOTIF_TEST = 3
         private const val TICK_MS = 5_000L
+
+        private val _outOfRange = MutableStateFlow<Boolean?>(null)
+
+        /**
+         * The running watch's verdict, so the screen and the alert say the same
+         * thing. Null while nothing is being judged: no watch, or the radio is
+         * off or has only just come back.
+         */
+        val outOfRange: StateFlow<Boolean?> = _outOfRange.asStateFlow()
 
         /** Settling time after the radio returns before absence means anything. */
         private const val RADIO_GRACE_MS = 30_000L
@@ -323,8 +391,14 @@ class WatchService : Service() {
         /** Extra silence required, at maximum scan sensitivity, before alerting. */
         const val CONFIRM_MS = 20_000L
 
-        /** What the UI should treat as out of range, so it agrees with the alert. */
+        /** Out of range, once the watch is not running to say so itself. */
         const val OUT_OF_RANGE_MS = IN_RANGE_WINDOW_MS + CONFIRM_MS
+
+        /** How recently the tag must be heard to count towards a return. */
+        private const val RETURN_FRESH_MS = 15_000L
+
+        /** Contact has to hold this long before an alert is called off. */
+        private const val RETURN_MS = 20_000L
         private const val EXPIRE_MS = 300_000L
 
         const val EXTRA_WITH_LOCATION = "with_location"

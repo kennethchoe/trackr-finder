@@ -115,6 +115,7 @@ class MainActivity : ComponentActivity() {
         ) { granted = hasPermissions() }
 
         val sightings by scanner.sightings.collectAsState()
+        val serviceVerdict by WatchService.outOfRange.collectAsState()
         var status by remember { mutableStateOf<String?>(null) }
         var ringing by remember { mutableStateOf<String?>(null) }
         var batteries by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
@@ -142,6 +143,12 @@ class MainActivity : ComponentActivity() {
                 delay(1000)
                 scanner.expireOlderThan(60_000)
                 now = System.currentTimeMillis()
+                // This scan is the more sensitive of the two while the screen is
+                // up; the watch reads lastSeenAt, so what is on screen reaches it.
+                prefs.watchedAddress?.let { addr ->
+                    val heard = scanner.sightings.value[addr] ?: return@let
+                    if (heard.seenAt > prefs.lastSeenAt) prefs.lastSeenAt = heard.seenAt
+                }
                 lastSeenAt = prefs.lastSeenAt
                 lastLoc = if (prefs.hasLocation) prefs.lastLat to prefs.lastLon else null
             }
@@ -222,8 +229,12 @@ class MainActivity : ComponentActivity() {
             )
             // Absence only counts once the scan has had time to look.
             val hadTimeToLook = scanner.scanActiveMillis > SCAN_SETTLE_MS
-            val showingOutOfRange =
-                w != null && hadTimeToLook && heardMillisAgo > WatchService.OUT_OF_RANGE_MS
+            // A running watch has already decided this, with confirmation and
+            // radio state factored in; deciding it a second time here is how the
+            // screen and the notification end up disagreeing.
+            val showingOutOfRange = w != null && (
+                serviceVerdict ?: (hadTimeToLook && heardMillisAgo > WatchService.OUT_OF_RANGE_MS)
+            )
             if (showingOutOfRange) {
                 LastSeenPanel(
                     label = nicknames[w] ?: prefs.watchedName ?: w,
@@ -351,10 +362,7 @@ class MainActivity : ComponentActivity() {
                         battery = batteries[s.address],
                         isWatched = alertsOn && watched == s.address,
                         onRename = { renaming = s },
-                        onTestAlert = {
-                            WatchService.testAlert(this@MainActivity)
-                            status = "Test alert sent — lock the phone and try again"
-                        },
+                        onTestAlert = { WatchService.testAlert(this@MainActivity) },
                         isRinging = ringing == s.address,
                         stale = s === staleWatched,
                         now = now,
