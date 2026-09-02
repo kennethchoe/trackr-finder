@@ -86,7 +86,7 @@ Verified end-to-end on **one** device: a Galaxy S25 Ultra (SM-S938U), Android 16
 | Ringing a TrackR Pixel | verified |
 | Battery read | verified |
 | Nicknames, persistence across reinstall | verified |
-| Leave-behind alert with the phone locked | verified |
+| Leave-behind alert with the phone locked | verified, fires in 65-70 s |
 | Alert audible and vibrating from the lock screen | verified |
 | Watch surviving a reboot, app never opened | verified |
 | Recording a last-seen coordinate | verified |
@@ -114,7 +114,13 @@ platform facts, some are judgement calls:
 | 2.5 s smoothing time constant | Derived from elapsed time rather than packet count, so it self-adjusts to any tag's advertising rate. Portable. |
 | 5 s watch tick | Cheap; portable. |
 | 45 s out-of-range window | **A judgement call.** Long enough that a moment's radio dropout does not cry wolf, on this device. A phone whose BLE scan duty-cycles more lazily may need longer; a stock Pixel could likely run tighter. |
+| 20 s confirmation | Measured: at −85 dBm the longest observed gap between packets from a stationary Pixel was 78 s. The confirmation burst scans at `LOW_LATENCY`, where gaps that long do not occur. |
+| 20 s return hold | Contact has to hold this long before the watch re-arms. One stray packet at the edge of range is not a return, and treating it as one makes the alert fire again a minute later, indefinitely. The screen clears immediately; only re-arming waits. |
 | 8 s scan settle | Grace before absence means anything, so a cold start does not flash a false alarm. |
+
+**Time to alert: about 65-70 seconds.** 45 s of silence, then 20 s of
+confirmation at the most sensitive scan setting, evaluated on a 5 s tick. It is
+not instant, and is not meant to be.
 
 ## If the alert stops firing
 

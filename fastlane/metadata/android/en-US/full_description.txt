@@ -17,9 +17,18 @@ Features:
 * Optional leave-behind alert: watch one tag, get notified when it drops out of
   range, and see where you last heard it
 
+The leave-behind alert fires roughly 65 to 70 seconds after you walk away from
+the tag: 45 seconds of silence, then 20 seconds of listening at the most
+sensitive scan setting to confirm it. That confirmation step is deliberate. A
+tag at the edge of its range can go unheard for over a minute while sitting in
+the same room, so alerting on the first gap would cry wolf constantly. Expect
+about a minute, not instant.
+
 Deliberate limitations, stated plainly:
 
 * Signal strength gives you hotter/colder, not a direction. Range is 10-30 m.
+* The alert takes about a minute to fire, by design. Walking out of a shop and
+  back in quickly may not trigger it at all.
 * Once a tag is out of range it is gone. TrackR's crowd-sourced finding network
   no longer exists and cannot be recreated. The recorded position is where YOUR
   PHONE was when it last heard the tag, not where the tag is.

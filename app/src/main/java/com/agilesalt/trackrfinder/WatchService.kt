@@ -127,13 +127,13 @@ class WatchService : Service() {
                 _outOfRange.value = null
                 notificationManager.notify(
                     NOTIF_ONGOING,
-                    ongoingNotification("$label — waiting for Bluetooth", null),
+                    ongoingNotification("Watching $label", "Waiting for Bluetooth"),
                 )
             } else if (addr != null && System.currentTimeMillis() < suspendedUntil) {
                 _outOfRange.value = null
                 notificationManager.notify(
                     NOTIF_ONGOING,
-                    ongoingNotification("$label — reconnecting", null),
+                    ongoingNotification("Watching $label", "Reconnecting"),
                 )
             } else if (addr != null) {
                 val now = System.currentTimeMillis()
@@ -191,15 +191,16 @@ class WatchService : Service() {
                 val live = sighting?.takeIf { it.ageMillis < IN_RANGE_WINDOW_MS }
                 notificationManager.notify(
                     NOTIF_ONGOING,
-                    when {
-                        !seenSinceStart -> ongoingNotification("Watching $label", "Not seen yet")
-                        gone -> ongoingNotification("$label out of range", lastSeenLine())
-                        live != null -> ongoingNotification(
-                            "$label is nearby",
-                            "%.0f m away  ·  %d dBm".format(live.approxMeters, live.rssi),
-                        )
-                        else -> ongoingNotification("$label is nearby", lastSeenLine())
-                    },
+                    ongoingNotification(
+                        "Watching $label",
+                        when {
+                            !seenSinceStart -> "Not seen yet"
+                            gone -> "Out of range · last heard ${agoText()}"
+                            live != null ->
+                                "%.0f m away  ·  %d dBm".format(live.approxMeters, live.rssi)
+                            else -> "In range · last heard ${agoText()}"
+                        },
+                    ),
                 )
                 scanner.expireOlderThan(EXPIRE_MS)
             }
@@ -221,14 +222,18 @@ class WatchService : Service() {
         prefs.lastLon = best.longitude
     }
 
-    private fun lastSeenLine(): String {
+    private fun agoText(): String {
         val seen = prefs.lastSeenAt
-        if (seen == 0L) return "Not seen yet"
+        if (seen == 0L) return "never"
         val mins = (System.currentTimeMillis() - seen) / 60_000
-        val when_ = if (mins < 1) "just now" else "${mins} min ago"
-        return if (prefs.hasLocation) {
-            "Last seen %s at %.5f, %.5f".format(when_, prefs.lastLat, prefs.lastLon)
-        } else "Last seen $when_"
+        return if (mins < 1) "just now" else "$mins min ago"
+    }
+
+    private fun lastSeenLine(): String = when {
+        prefs.lastSeenAt == 0L -> "Not seen yet"
+        prefs.hasLocation ->
+            "Last seen %s at %.5f, %.5f".format(agoText(), prefs.lastLat, prefs.lastLon)
+        else -> "Last seen ${agoText()}"
     }
 
     private fun alertNotification(body: String) = NotificationCompat.Builder(this, CHANNEL_ALERT)
@@ -243,15 +248,20 @@ class WatchService : Service() {
         .setAutoCancel(true)
         .setContentIntent(openAppIntent())
 
-    private fun notifyLeftBehind() =
+    private fun notifyLeftBehind() {
+        notificationManager.cancel(NOTIF_TEST)
         notificationManager.notify(NOTIF_ALERT, alertNotification(lastSeenLine()).build())
+    }
 
     private fun notifyTest() = notificationManager.notify(
         NOTIF_TEST,
         alertNotification(
-            "This is a test. You will get an alert like this when you leave "
-                + "this tag behind, even when the phone is locked."
-        ).build(),
+            "You will get an alert like this when you leave this tag behind, "
+                + "even when the phone is locked."
+        )
+            .setContentTitle("Test · $label left behind")
+            .setTimeoutAfter(TEST_LIFETIME_MS)
+            .build(),
     )
 
     /**
@@ -371,6 +381,9 @@ class WatchService : Service() {
         private const val NOTIF_ALERT = 2
         // Its own id, so a test never overwrites or clears a real alert.
         private const val NOTIF_TEST = 3
+
+        /** A test clears itself; it is a demonstration, not a record. */
+        private const val TEST_LIFETIME_MS = 300_000L
         private const val TICK_MS = 5_000L
 
         private val _outOfRange = MutableStateFlow<Boolean?>(null)
