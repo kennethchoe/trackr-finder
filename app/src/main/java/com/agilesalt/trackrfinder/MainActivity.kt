@@ -29,6 +29,8 @@ import java.util.Locale
 /** Grace period after a scan starts before absence means anything. */
 private const val SCAN_SETTLE_MS = 8_000L
 
+private enum class DeviceAction { RING, STOP, BATTERY }
+
 class MainActivity : ComponentActivity() {
 
     private lateinit var scanner: TrackrScanner
@@ -117,8 +119,10 @@ class MainActivity : ComponentActivity() {
         val sightings by scanner.sightings.collectAsState()
         val serviceVerdict by WatchService.outOfRange.collectAsState()
         var status by remember { mutableStateOf<String?>(null) }
-        var ringing by remember { mutableStateOf<String?>(null) }
-        var batteries by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+        var activeDevice by remember { mutableStateOf<String?>(null) }
+        var activeAction by remember { mutableStateOf<DeviceAction?>(null) }
+        // Missing key = not checked; null = checked but unavailable.
+        var batteries by remember { mutableStateOf<Map<String, Int?>>(emptyMap()) }
         var watched by remember { mutableStateOf(prefs.watchedAddress) }
         var alertsOn by remember { mutableStateOf(prefs.watchEnabled) }
         var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -281,17 +285,17 @@ class MainActivity : ComponentActivity() {
             // Ringing doubles as the capability probe: only service discovery
             // reveals whether a device speaks Immediate Alert.
             val doRing: (Sighting) -> Unit = { s ->
-                ringing = s.address
+                activeDevice = s.address
+                activeAction = DeviceAction.RING
                 status = "Connecting…"
                 ringer.ring(s.address) { result ->
-                    ringing = null
+                    activeDevice = null
+                    activeAction = null
                     when (result) {
                         is RingResult.Success -> {
                             prefs.setRingSupport(s.address, true)
                             ringSupport = prefs.allRingSupport()
-                            result.batteryPct?.let {
-                                batteries = batteries + (s.address to it)
-                            }
+                            batteries = batteries + (s.address to result.batteryPct)
                             status = "Ringing ${nicknames[s.address] ?: s.name}"
                         }
                         RingResult.Unsupported -> {
@@ -361,15 +365,37 @@ class MainActivity : ComponentActivity() {
                         sighting = s,
                         label = nicknames[s.address] ?: s.name,
                         battery = batteries[s.address],
+                        batteryChecked = batteries.containsKey(s.address),
                         isWatched = alertsOn && watched == s.address,
                         onRename = { renaming = s },
                         onTestAlert = { WatchService.testAlert(this@MainActivity) },
-                        isRinging = ringing == s.address,
+                        isRinging = activeDevice == s.address && activeAction == DeviceAction.RING,
+                        isCheckingBattery = activeDevice == s.address && activeAction == DeviceAction.BATTERY,
+                        isBusy = activeDevice != null,
                         stale = s === staleWatched,
                         now = now,
                         onRing = { doRing(s) },
+                        onCheckBattery = {
+                            activeDevice = s.address
+                            activeAction = DeviceAction.BATTERY
+                            status = null
+                            ringer.checkBattery(s.address) { result ->
+                                activeDevice = null
+                                activeAction = null
+                                batteries = batteries + (s.address to
+                                    (result as? RingResult.Success)?.batteryPct)
+                                status = (result as? RingResult.Failure)?.reason
+                            }
+                        },
                         onStopRing = {
+                            activeDevice = s.address
+                            activeAction = DeviceAction.STOP
                             ringer.stopRinging(s.address) { result ->
+                                activeDevice = null
+                                activeAction = null
+                                if (result is RingResult.Success) {
+                                    batteries = batteries + (s.address to result.batteryPct)
+                                }
                                 status = when (result) {
                                     is RingResult.Success -> "Alert off"
                                     is RingResult.Failure -> result.reason
@@ -436,7 +462,7 @@ class MainActivity : ComponentActivity() {
                         CompactRow(
                             sighting = s,
                             probed = ringSupport[s.address],
-                            busy = ringing == s.address,
+                            busy = activeDevice != null,
                             onTryRing = { doRing(s) },
                         )
                     }
@@ -658,11 +684,15 @@ private fun DeviceCard(
     sighting: Sighting,
     label: String,
     battery: Int?,
+    batteryChecked: Boolean,
     isWatched: Boolean,
     isRinging: Boolean,
+    isCheckingBattery: Boolean,
+    isBusy: Boolean,
     now: Long,
     onRing: () -> Unit,
     onStopRing: () -> Unit,
+    onCheckBattery: () -> Unit,
     onWatch: () -> Unit,
     onRename: () -> Unit,
     onTestAlert: () -> Unit,
@@ -680,7 +710,6 @@ private fun DeviceCard(
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.weight(1f))
-                battery?.let { Text("$it%", style = MaterialTheme.typography.labelLarge) }
             }
             if (renamed) {
                 Text(
@@ -732,6 +761,26 @@ private fun DeviceCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    when {
+                        isCheckingBattery -> "Reading battery…"
+                        battery != null -> "Battery: $battery%"
+                        batteryChecked -> "Battery unavailable"
+                        else -> "Battery not checked"
+                    },
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = onCheckBattery, enabled = !isBusy) {
+                    Text("Check battery")
+                }
+            }
+
             Spacer(Modifier.height(12.dp))
             // Two rows: four controls wrap badly at larger font scales.
             Row(
@@ -740,7 +789,7 @@ private fun DeviceCard(
             ) {
                 Button(
                     onClick = onRing,
-                    enabled = !isRinging,
+                    enabled = !isBusy,
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(
@@ -748,7 +797,7 @@ private fun DeviceCard(
                         maxLines = 1,
                     )
                 }
-                OutlinedButton(onClick = onStopRing, modifier = Modifier.weight(1f)) {
+                OutlinedButton(onClick = onStopRing, enabled = !isBusy, modifier = Modifier.weight(1f)) {
                     Text("Stop", maxLines = 1)
                 }
             }

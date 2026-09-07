@@ -23,8 +23,8 @@ sealed interface RingResult {
 }
 
 /**
- * Connects, writes one byte to the Immediate Alert Service, reads the battery
- * level if present, and disconnects. The Find Me profile is unauthenticated,
+ * Connects to ring a tag or read its battery, then disconnects.
+ * Battery-only requests never write to Immediate Alert. The Find Me profile is unauthenticated,
  * so no bonding is involved.
  */
 @SuppressLint("MissingPermission")
@@ -37,7 +37,13 @@ class Ringer(private val context: Context) {
 
     val busy: Boolean get() = gatt != null
 
-    fun ring(address: String, level: Byte = Trackr.ALERT_HIGH, callback: (RingResult) -> Unit) {
+    fun ring(address: String, level: Byte = Trackr.ALERT_HIGH, callback: (RingResult) -> Unit) =
+        connect(address, level, callback)
+
+    fun checkBattery(address: String, callback: (RingResult) -> Unit) =
+        connect(address, null, callback)
+
+    private fun connect(address: String, level: Byte?, callback: (RingResult) -> Unit) {
         if (busy) {
             callback(RingResult.Failure("Already talking to a device"))
             return
@@ -52,6 +58,7 @@ class Ringer(private val context: Context) {
         }
 
         done = false
+        pendingLevel = level
         onResult = callback
         try {
             gatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
@@ -60,13 +67,13 @@ class Ringer(private val context: Context) {
             return
         }
         main.postDelayed({ finish(RingResult.Failure("Timed out -- out of range?")) }, TIMEOUT_MS)
-        this.pendingLevel = level
     }
 
     fun stopRinging(address: String, callback: (RingResult) -> Unit) =
         ring(address, Trackr.ALERT_OFF, callback)
 
-    private var pendingLevel: Byte = Trackr.ALERT_HIGH
+    /** Null selects a read-only battery request. */
+    private var pendingLevel: Byte? = Trackr.ALERT_HIGH
     private var battery: Int? = null
 
     private val gattCallback = object : BluetoothGattCallback() {
@@ -85,12 +92,17 @@ class Ringer(private val context: Context) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 finish(RingResult.Failure("Service discovery failed ($status)")); return
             }
+            val level = pendingLevel
+            if (level == null) {
+                readBattery(g)
+                return
+            }
             val alert = g.getService(Trackr.IMMEDIATE_ALERT)
                 ?.getCharacteristic(Trackr.ALERT_LEVEL)
             if (alert == null) {
                 finish(RingResult.Unsupported); return
             }
-            writeAlert(g, alert, pendingLevel)
+            writeAlert(g, alert, level)
         }
 
         override fun onCharacteristicWrite(
@@ -102,11 +114,7 @@ class Ringer(private val context: Context) {
                 return
             }
             // The alert write succeeded; battery is a bonus.
-            val batteryChar = g.getService(Trackr.BATTERY_SERVICE)
-                ?.getCharacteristic(Trackr.BATTERY_LEVEL)
-            if (batteryChar == null || !g.readCharacteristic(batteryChar)) {
-                finish(RingResult.Success(null))
-            }
+            readBattery(g)
         }
 
         // API 33+
@@ -121,9 +129,19 @@ class Ringer(private val context: Context) {
         ) = handleRead(ch, ch.value ?: ByteArray(0), status)
     }
 
+    private fun readBattery(g: BluetoothGatt) {
+        val ch = g.getService(Trackr.BATTERY_SERVICE)?.getCharacteristic(Trackr.BATTERY_LEVEL)
+        if (ch == null || !g.readCharacteristic(ch)) {
+            finish(RingResult.Success(null))
+        }
+    }
+
     private fun handleRead(ch: BluetoothGattCharacteristic, value: ByteArray, status: Int) {
-        if (ch.uuid == Trackr.BATTERY_LEVEL && status == BluetoothGatt.GATT_SUCCESS) {
-            battery = value.firstOrNull()?.toInt()?.and(0xFF)
+        if (ch.uuid != Trackr.BATTERY_LEVEL) return
+        if (status == BluetoothGatt.GATT_SUCCESS) {
+            // The standard defines one unsigned byte in 0..100. Some trackers
+            // return 127; preserve that as unavailable rather than inventing 100%.
+            battery = value.singleOrNull()?.toInt()?.and(0xFF)?.takeIf { it in 0..100 }
         }
         finish(RingResult.Success(battery))
     }

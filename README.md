@@ -34,7 +34,9 @@ authenticated against a key provisioned to the owner's account.
 
 - Live scan with an RSSI proximity bar and a rough distance estimate
 - **Ring it** / **Stop** — one-byte GATT writes
-- Battery percentage, read opportunistically during the ring connection
+- **Check battery** without ringing, plus a battery read during ring/stop
+  connections. Missing, failed, or invalid readings display **Battery unavailable**;
+  only values from 0 through 100 are shown as percentages.
 - **Rename** — a local nickname per device, keyed by MAC. Useful because every
   Pixel advertises as plain `tkr`, so they are otherwise indistinguishable
 - **Show all Bluetooth devices** — a diagnostic drawer listing every advertiser,
