@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class TrackrScanner(context: Context) {
 
     private val appContext = context.applicationContext
+    private val prefs = Prefs(appContext)
 
     private val adapter: BluetoothAdapter? =
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
@@ -158,6 +159,7 @@ class TrackrScanner(context: Context) {
         val reason = when {
             advertisesAlert -> MatchReason.ALERT_SERVICE
             Trackr.isKnownTagName(name) -> MatchReason.KNOWN_NAME
+            prefs.isRememberedDevice(result.device.address) -> MatchReason.SAVED_DEVICE
             showAll -> MatchReason.SHOW_ALL
             else -> return
         }

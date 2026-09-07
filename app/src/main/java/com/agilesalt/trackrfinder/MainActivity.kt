@@ -29,7 +29,7 @@ import java.util.Locale
 /** Grace period after a scan starts before absence means anything. */
 private const val SCAN_SETTLE_MS = 8_000L
 
-private enum class DeviceAction { RING, STOP, BATTERY }
+private enum class DeviceAction { RING, STOP, BATTERY, DETAILS, RENAME }
 
 class MainActivity : ComponentActivity() {
 
@@ -128,11 +128,30 @@ class MainActivity : ComponentActivity() {
         var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
         var nicknames by remember { mutableStateOf(prefs.allNicknames()) }
         var renaming by remember { mutableStateOf<Sighting?>(null) }
+        var detailTarget by remember { mutableStateOf<Sighting?>(null) }
+        var details by remember { mutableStateOf<DeviceDetails?>(null) }
+        var detailError by remember { mutableStateOf<String?>(null) }
+        var hardwareRenaming by remember { mutableStateOf(false) }
+        var hardwareNameError by remember { mutableStateOf<String?>(null) }
+        var ringLevels by remember { mutableStateOf<Map<String, Byte>>(emptyMap()) }
         var showAll by remember { mutableStateOf(prefs.showAll) }
         var ringSupport by remember { mutableStateOf(prefs.allRingSupport()) }
         var lastSeenAt by remember { mutableLongStateOf(prefs.lastSeenAt) }
         var lastLoc by remember {
             mutableStateOf(if (prefs.hasLocation) prefs.lastLat to prefs.lastLon else null)
+        }
+
+        fun loadDetails(target: Sighting) {
+            activeDevice = target.address
+            activeAction = DeviceAction.DETAILS
+            details = null
+            detailError = null
+            ringer.readDetails(target.address) { result ->
+                activeDevice = null
+                activeAction = null
+                details = (result as? RingResult.Success)?.details
+                detailError = (result as? RingResult.Failure)?.reason
+            }
         }
 
         // Foreground discovery scan, live only while this screen is up.
@@ -288,7 +307,7 @@ class MainActivity : ComponentActivity() {
                 activeDevice = s.address
                 activeAction = DeviceAction.RING
                 status = "Connecting…"
-                ringer.ring(s.address) { result ->
+                ringer.ring(s.address, ringLevels[s.address] ?: prefs.ringLevel(s.address)) { result ->
                     activeDevice = null
                     activeAction = null
                     when (result) {
@@ -372,6 +391,15 @@ class MainActivity : ComponentActivity() {
                         isRinging = activeDevice == s.address && activeAction == DeviceAction.RING,
                         isCheckingBattery = activeDevice == s.address && activeAction == DeviceAction.BATTERY,
                         isBusy = activeDevice != null,
+                        ringLevel = ringLevels[s.address] ?: prefs.ringLevel(s.address),
+                        onRingLevel = { level ->
+                            prefs.setRingLevel(s.address, level)
+                            ringLevels = ringLevels + (s.address to level)
+                        },
+                        onDetails = {
+                            detailTarget = s
+                            loadDetails(s)
+                        },
                         stale = s === staleWatched,
                         now = now,
                         onRing = { doRing(s) },
@@ -485,6 +513,48 @@ class MainActivity : ComponentActivity() {
                     renaming = null
                 },
             )
+        }
+
+        detailTarget?.let { target ->
+            if (hardwareRenaming) {
+                HardwareRenameDialog(
+                    current = details?.values?.get(DetailField.NAME) ?: target.name,
+                    busy = activeDevice != null,
+                    error = hardwareNameError,
+                    onDismiss = { hardwareRenaming = false },
+                    onSave = { name ->
+                        // A write may reach the device even if the response is lost.
+                        prefs.rememberDevice(target.address)
+                        activeDevice = target.address
+                        activeAction = DeviceAction.RENAME
+                        hardwareNameError = null
+                        ringer.renameDevice(target.address, name) { result ->
+                            activeDevice = null
+                            activeAction = null
+                            val verified = (result as? RingResult.Success)?.deviceName
+                            if (verified != null) {
+                                details = details?.copy(values = details!!.values + (DetailField.NAME to verified))
+                                hardwareRenaming = false
+                                status = "Device name verified. Its advertised name may update later."
+                            } else {
+                                hardwareNameError = (result as? RingResult.Failure)?.reason
+                                    ?: "The device name could not be verified."
+                            }
+                        }
+                    },
+                )
+            } else {
+                DeviceDetailsDialog(
+                    label = nicknames[target.address] ?: target.name,
+                    address = target.address,
+                    details = details,
+                    busy = activeDevice != null,
+                    error = detailError,
+                    onRefresh = { loadDetails(target) },
+                    onRename = { hardwareNameError = null; hardwareRenaming = true },
+                    onDismiss = { detailTarget = null },
+                )
+            }
         }
     }
 }
@@ -643,7 +713,7 @@ private fun RenameDialog(
     var text by remember { mutableStateOf(current) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Rename tracker") },
+        title = { Text("Phone nickname") },
         text = {
             Column {
                 OutlinedTextField(
@@ -667,8 +737,8 @@ private fun RenameDialog(
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "This label is stored on the phone. The tracker's own name "
-                        + "is read-only and is not changed.",
+                    "This label is stored only on this phone. To try changing the "
+                        + "tracker's own name, open Device details.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -689,6 +759,9 @@ private fun DeviceCard(
     isRinging: Boolean,
     isCheckingBattery: Boolean,
     isBusy: Boolean,
+    ringLevel: Byte,
+    onRingLevel: (Byte) -> Unit,
+    onDetails: () -> Unit,
     now: Long,
     onRing: () -> Unit,
     onStopRing: () -> Unit,
@@ -782,6 +855,24 @@ private fun DeviceCard(
             }
 
             Spacer(Modifier.height(12.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Ring level", style = MaterialTheme.typography.bodyMedium)
+                FilterChip(
+                    selected = ringLevel == Trackr.ALERT_MILD,
+                    onClick = { onRingLevel(Trackr.ALERT_MILD) },
+                    enabled = !isBusy,
+                    label = { Text("Mild") },
+                )
+                FilterChip(
+                    selected = ringLevel == Trackr.ALERT_HIGH,
+                    onClick = { onRingLevel(Trackr.ALERT_HIGH) },
+                    enabled = !isBusy,
+                    label = { Text("High") },
+                )
+            }
             // Two rows: four controls wrap badly at larger font scales.
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -824,7 +915,10 @@ private fun DeviceCard(
                 if (isWatched) {
                     TextButton(onClick = onTestAlert) { Text("Test alert", maxLines = 1) }
                 }
-                TextButton(onClick = onRename) { Text("Rename", maxLines = 1) }
+                TextButton(onClick = onRename) { Text("Nickname", maxLines = 1) }
+            }
+            TextButton(onClick = onDetails, enabled = !isBusy) {
+                Text("Device details")
             }
         }
     }

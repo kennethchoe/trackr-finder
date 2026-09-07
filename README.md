@@ -33,12 +33,20 @@ authenticated against a key provisioned to the owner's account.
 ## Features
 
 - Live scan with an RSSI proximity bar and a rough distance estimate
-- **Ring it** / **Stop** — one-byte GATT writes
+- **Ring it** / **Stop** — one-byte GATT writes, with a saved **Mild / High**
+  choice per tracker. The device decides whether the two levels sound different.
 - **Check battery** without ringing, plus a battery read during ring/stop
   connections. Missing, failed, or invalid readings display **Battery unavailable**;
   only values from 0 through 100 are shown as percentages.
-- **Rename** — a local nickname per device, keyed by MAC. Useful because every
+- **Nickname** — a local nickname per device, keyed by MAC. Useful because every
   Pixel advertises as plain `tkr`, so they are otherwise indistinguishable
+- **Device details** — reads the device name, manufacturer, model, firmware,
+  software, transmit power, appearance, and preferred connection timings.
+  Unsupported or failed reads show as unavailable; an interrupted read retains
+  the fields already received.
+- **Rename device**, inside Device details — attempts to write a short hardware
+  name and verifies it by reading it back. This is separate from the phone
+  nickname. Saved device addresses keep renamed trackers discoverable.
 - **Show all Bluetooth devices** — a diagnostic drawer listing every advertiser,
   with a "Try ringing" probe. Devices proven ringable are promoted to full cards
 - **"Alert me if I leave this behind"** — a foreground service watches one
@@ -78,6 +86,15 @@ tracker sighting. These are conservative app thresholds, not accuracy guarantees
 The app does not request a fresh GPS fix, so a position may be unavailable even
 with location permission. A later sighting cannot reuse an unrelated old map pin;
 coordinates saved by older builds without a fix timestamp are also hidden.
+
+**Hardware name writes are not guaranteed.** In a September 2026 computer-side
+test, the nearby `tkr` tracker exposed Device Name as readable and writable, but
+rejected a write of `tkr-test` with `Not Authorized`. A pairing attempt failed
+with `AuthenticationFailed`, and a subsequent scan still showed `tkr`. No
+successful hardware rename or persistence across a power cycle was established.
+The app therefore reports rejected or unverified writes as failures. Even a
+verified write may not immediately change advertisements or survive a restart.
+Names are limited to 20 UTF-8 bytes to fit a single minimum-MTU write.
 
 ## Install
 
@@ -157,7 +174,12 @@ Requires JDK 17+, Android SDK 36. Tested on a Galaxy S25 Ultra (Android 16).
 
 Run the regression tests with `./gradlew testDebugUnitTest`. These use Robolectric
 to check Bluetooth write results, last-seen location validation, and persistent
-notification Stop behavior. They do not replace testing on a physical phone.
+notification Stop behavior, plus device details, verified renaming, saved-device
+discovery, and ring levels. Run the dialog interaction tests on a connected Android
+device or emulator with `./gradlew connectedDebugAndroidTest`. The Android UI-test
+APK compiles, but those tests have not yet completed on a device: the JVM
+text-field simulation did not settle and the local Android emulator crashed
+during startup. These checks do not replace testing Bluetooth on a physical phone.
 
 ## Not affiliated with TrackR
 
