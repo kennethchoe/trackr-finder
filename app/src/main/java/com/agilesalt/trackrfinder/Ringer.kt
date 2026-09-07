@@ -3,6 +3,7 @@ package com.agilesalt.trackrfinder
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothManager
@@ -157,7 +158,7 @@ class Ringer(private val context: Context) {
         val payload = byteArrayOf(level)
 
         val ok = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            g.writeCharacteristic(ch, payload, type) == BluetoothGatt.GATT_SUCCESS
+            g.writeCharacteristic(ch, payload, type) == BluetoothStatusCodes.SUCCESS
         } else {
             ch.writeType = type
             ch.value = payload

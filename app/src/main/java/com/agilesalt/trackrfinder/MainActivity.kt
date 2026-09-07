@@ -22,9 +22,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /** Grace period after a scan starts before absence means anything. */
 private const val SCAN_SETTLE_MS = 8_000L
@@ -721,19 +718,24 @@ private fun DeviceCard(
             }
             Spacer(Modifier.height(10.dp))
 
+            val secondsSinceHeard = if (sighting.seenAt <= 0L) null
+                else (now - sighting.seenAt).coerceAtLeast(0L) / 1000
+            val lastHeard = when {
+                secondsSinceHeard == null -> "Not heard yet"
+                secondsSinceHeard < 5 -> "Last heard just now"
+                secondsSinceHeard < 60 -> "Last heard ${secondsSinceHeard}s ago"
+                secondsSinceHeard < 3600 -> "Last heard ${secondsSinceHeard / 60} min ago"
+                secondsSinceHeard < 86400 -> "Last heard ${secondsSinceHeard / 3600} hr ago"
+                else -> "Last heard ${secondsSinceHeard / 86400} days ago"
+            }
+
             if (stale) {
                 // An indeterminate bar, not a stale distance: showing the last
                 // known metres as though current would be a quiet lie.
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(10.dp))
                 Spacer(Modifier.height(6.dp))
-                val ago = if (sighting.seenAt <= 0L) null
-                    else (System.currentTimeMillis() - sighting.seenAt) / 1000
                 Text(
-                    when {
-                        ago == null -> "Listening…"
-                        ago < 60 -> "Listening… last heard ${ago}s ago"
-                        else -> "Listening… last heard ${ago / 60} min ago"
-                    },
+                    if (secondsSinceHeard == null) "Listening…" else "Listening… $lastHeard",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -747,8 +749,7 @@ private fun DeviceCard(
                     "≈%.1f m  ·  %d dBm  ·  %s".format(
                         sighting.approxMeters,
                         sighting.displayRssi,
-                        SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-                            .format(Date(sighting.seenAt)),
+                        lastHeard,
                     ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
