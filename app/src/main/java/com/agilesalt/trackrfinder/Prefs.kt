@@ -27,6 +27,30 @@ class Prefs(context: Context) {
         }
         set(v) = sp.edit().putBoolean(KEY_WATCH_ENABLED, v).apply()
 
+    var trackerAlertAddress: String?
+        get() = sp.getString("tracker_alert_addr", null)
+        set(v) = sp.edit().putString("tracker_alert_addr", v).apply()
+
+    var trackerAlertName: String?
+        get() = sp.getString("tracker_alert_name", null)
+        set(v) = sp.edit().putString("tracker_alert_name", v).apply()
+
+    var trackerAlertEnabled: Boolean
+        get() = sp.getBoolean("tracker_alert_enabled", false)
+        set(v) { sp.edit().putBoolean("tracker_alert_enabled", v).commit() }
+
+    /** Set before an enabling write; only cleared after a verified Off read. */
+    var trackerAlertNeedsDisarm: Boolean
+        get() = sp.getBoolean("tracker_alert_needs_disarm", false)
+        set(v) { sp.edit().putBoolean("tracker_alert_needs_disarm", v).commit() }
+
+    val trackerAlertNeedsService: Boolean
+        get() = trackerAlertAddress != null && (trackerAlertEnabled || trackerAlertNeedsDisarm)
+
+    fun clearTrackerAlert() = sp.edit()
+        .remove("tracker_alert_addr").remove("tracker_alert_name")
+        .remove("tracker_alert_enabled").remove("tracker_alert_needs_disarm").commit()
+
     /** Forget the tracked tag entirely, keeping nicknames and probe results. */
     fun forgetWatch() = sp.edit()
         .remove("addr").remove("name").remove("adv_name").remove(KEY_WATCH_ENABLED)
@@ -119,17 +143,8 @@ class Prefs(context: Context) {
     }
 
     fun isRememberedDevice(address: String): Boolean =
-        address == watchedAddress || ringSupport(address) == true ||
+        address == watchedAddress || address == trackerAlertAddress || ringSupport(address) == true ||
             sp.getStringSet("known_devices", emptySet()).orEmpty().contains(address)
-
-    fun ringLevel(address: String): Byte =
-        if (sp.getInt("ring_level_$address", Trackr.ALERT_HIGH.toInt()) == Trackr.ALERT_MILD.toInt())
-            Trackr.ALERT_MILD else Trackr.ALERT_HIGH
-
-    fun setRingLevel(address: String, level: Byte) {
-        require(level == Trackr.ALERT_MILD || level == Trackr.ALERT_HIGH)
-        sp.edit().putInt("ring_level_$address", level.toInt()).apply()
-    }
 
     private fun ringKey(address: String) = "$RING_PREFIX$address"
 

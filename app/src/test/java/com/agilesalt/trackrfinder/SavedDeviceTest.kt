@@ -42,12 +42,4 @@ class SavedDeviceTest {
         assertEquals(MatchReason.SAVED_DEVICE, discover()?.matchReason)
     }
 
-    @Test fun ringPreferenceSurvivesReloadAndDefaultsToHigh() {
-        val context = RuntimeEnvironment.getApplication()
-        val prefs = Prefs(context)
-        assertEquals(Trackr.ALERT_HIGH, prefs.ringLevel("one"))
-        prefs.setRingLevel("one", Trackr.ALERT_MILD)
-        assertEquals(Trackr.ALERT_MILD, Prefs(context).ringLevel("one"))
-        assertEquals(Trackr.ALERT_HIGH, Prefs(context).ringLevel("two"))
-    }
 }

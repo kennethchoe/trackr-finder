@@ -129,17 +129,21 @@ class WatchService : Service() {
                 _outOfRange.value = null
                 notificationManager.notify(
                     NOTIF_ONGOING,
-                    ongoingNotification("Watching $label", "Waiting for Bluetooth"),
+                    ongoingNotification("Phone alert · $label", "Waiting for Bluetooth"),
                 )
             } else if (addr != null && System.currentTimeMillis() < suspendedUntil) {
                 _outOfRange.value = null
                 notificationManager.notify(
                     NOTIF_ONGOING,
-                    ongoingNotification("Watching $label", "Reconnecting"),
+                    ongoingNotification("Phone alert · $label", "Reconnecting"),
                 )
             } else if (addr != null) {
                 val now = System.currentTimeMillis()
                 val sighting = scanner.sightings.value[addr]
+                // A connected tracker may stop advertising. The held link is
+                // positive presence evidence for the phone notification watch.
+                val trackerConnected = TrackerAlertService.isConnected(addr)
+                if (trackerConnected) prefs.lastSeenAt = now
                 // The open screen runs its own scan; either radio hearing the
                 // tag counts, so the alert cannot contradict what is on screen.
                 sighting?.let { if (it.seenAt > prefs.lastSeenAt) prefs.lastSeenAt = it.seenAt }
@@ -194,8 +198,9 @@ class WatchService : Service() {
                 notificationManager.notify(
                     NOTIF_ONGOING,
                     ongoingNotification(
-                        "Watching $label",
+                        "Phone alert · $label",
                         when {
+                            trackerConnected -> "In range · connected to tracker"
                             !seenSinceStart -> "Not seen yet"
                             gone -> "Out of range · last heard ${agoText()}"
                             live != null ->
@@ -302,7 +307,7 @@ class WatchService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(openAppIntent())
             .addAction(
-                0, "Stop",
+                0, "Stop phone alert",
                 PendingIntent.getService(
                     this, 1,
                     Intent(this, WatchService::class.java).setAction(ACTION_STOP),
@@ -329,7 +334,7 @@ class WatchService : Service() {
 
     /** @return false when the platform refuses the foreground start entirely. */
     private fun enterForeground(withLocation: Boolean): Boolean = try {
-        val notification = ongoingNotification("Watching $label", null)
+        val notification = ongoingNotification("Phone alert · $label", null)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
             if (withLocation) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
