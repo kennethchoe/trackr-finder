@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -75,6 +76,7 @@ class WatchService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            prefs.watchEnabled = false
             stopForegroundAndSelf()
             return START_NOT_STICKY
         }
@@ -215,11 +217,19 @@ class WatchService : Service() {
             != PackageManager.PERMISSION_GRANTED
         ) return
         val lm = getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return
-        val best = runCatching {
-            lm.getProviders(true).mapNotNull { lm.getLastKnownLocation(it) }.maxByOrNull { it.time }
+        val locations = runCatching {
+            lm.getProviders(true).mapNotNull { provider ->
+                runCatching { lm.getLastKnownLocation(provider) }.getOrNull()
+            }
         }.getOrNull() ?: return
-        prefs.lastLat = best.latitude
-        prefs.lastLon = best.longitude
+        val now = System.currentTimeMillis()
+        val elapsedNanos = SystemClock.elapsedRealtimeNanos()
+        val best = LastSeenLocation.select(locations, prefs.lastSeenAt, now, elapsedNanos)
+            ?: return
+        prefs.saveLocation(
+            best.latitude, best.longitude,
+            LastSeenLocation.recordedAt(best, now, elapsedNanos),
+        )
     }
 
     private fun agoText(): String {
@@ -232,7 +242,8 @@ class WatchService : Service() {
     private fun lastSeenLine(): String = when {
         prefs.lastSeenAt == 0L -> "Not seen yet"
         prefs.hasLocation ->
-            "Last seen %s at %.5f, %.5f".format(agoText(), prefs.lastLat, prefs.lastLon)
+            "Last heard %s · approximate phone position: %.5f, %.5f"
+                .format(agoText(), prefs.lastLat, prefs.lastLon)
         else -> "Last seen ${agoText()}"
     }
 

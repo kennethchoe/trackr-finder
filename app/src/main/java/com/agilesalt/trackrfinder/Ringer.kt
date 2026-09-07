@@ -96,7 +96,12 @@ class Ringer(private val context: Context) {
         override fun onCharacteristicWrite(
             g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int,
         ) {
-            // The ring already happened; battery is a bonus.
+            if (ch.uuid != Trackr.ALERT_LEVEL) return
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                finish(RingResult.Failure("Alert write failed (status $status)"))
+                return
+            }
+            // The alert write succeeded; battery is a bonus.
             val batteryChar = g.getService(Trackr.BATTERY_SERVICE)
                 ?.getCharacteristic(Trackr.BATTERY_LEVEL)
             if (batteryChar == null || !g.readCharacteristic(batteryChar)) {

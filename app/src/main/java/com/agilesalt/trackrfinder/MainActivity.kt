@@ -151,6 +151,7 @@ class MainActivity : ComponentActivity() {
                 }
                 lastSeenAt = prefs.lastSeenAt
                 lastLoc = if (prefs.hasLocation) prefs.lastLat to prefs.lastLon else null
+                alertsOn = prefs.watchEnabled
             }
         }
 
@@ -368,7 +369,13 @@ class MainActivity : ComponentActivity() {
                         now = now,
                         onRing = { doRing(s) },
                         onStopRing = {
-                            ringer.stopRinging(s.address) { status = "Alert off" }
+                            ringer.stopRinging(s.address) { result ->
+                                status = when (result) {
+                                    is RingResult.Success -> "Alert off"
+                                    is RingResult.Failure -> result.reason
+                                    RingResult.Unsupported -> "This device has no Immediate Alert"
+                                }
+                            }
                         },
                         onWatch = {
                             if (alertsOn && watched == s.address) {
@@ -385,8 +392,7 @@ class MainActivity : ComponentActivity() {
                                 if (previous != s.address) {
                                     // The stored sighting belongs to the old tag.
                                     prefs.lastSeenAt = 0L
-                                    prefs.lastLat = Double.NaN
-                                    prefs.lastLon = Double.NaN
+                                    prefs.clearLocation()
                                     lastSeenAt = 0L
                                     lastLoc = null
                                 }
@@ -556,17 +562,17 @@ private fun LastSeenPanel(
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Where this phone was standing when it last heard the "
-                        + "tracker — so the tracker was within about 10-30 m of "
-                        + "here at that moment.",
+                    "Approximate phone position recorded near the last sighting. "
+                        + "This is not the tracker's live location.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "No position recorded. Grant location \"Allow all the time\" "
-                        + "so a fix can be taken while the screen is off.",
+                    "No recent, accurate phone position was available for this sighting. "
+                        + "Location permission and location services must be enabled "
+                        + "to record a position.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
