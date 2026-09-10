@@ -26,7 +26,7 @@ import kotlinx.coroutines.delay
 /** Grace period after a scan starts before absence means anything. */
 private const val SCAN_SETTLE_MS = 8_000L
 
-private enum class DeviceAction { RING, STOP, BATTERY }
+private enum class DeviceAction { RING, STOP, BATTERY, DETAILS, RENAME }
 
 class MainActivity : ComponentActivity() {
 
@@ -98,6 +98,9 @@ class MainActivity : ComponentActivity() {
         // ACCESS_BACKGROUND_LOCATION permission.
         // startForegroundService obliges the service to call startForeground,
         // so only start it when it will actually stay up.
+        if (prefs.trackerAlertNeedsService) {
+            runCatching { TrackerAlertService.start(this) }
+        }
         if (prefs.watchedAddress != null && prefs.watchEnabled) {
             // Visible app, so the location service type is permitted here even
             // though it was refused at boot. This is what restores the ability
@@ -115,6 +118,8 @@ class MainActivity : ComponentActivity() {
 
         val sightings by scanner.sightings.collectAsState()
         val serviceVerdict by WatchService.outOfRange.collectAsState()
+        val trackerAlarm by TrackerAlertService.state.collectAsState()
+        val trackerTarget = trackerAlarm.address ?: prefs.trackerAlertAddress
         var status by remember { mutableStateOf<String?>(null) }
         var activeDevice by remember { mutableStateOf<String?>(null) }
         var activeAction by remember { mutableStateOf<DeviceAction?>(null) }
@@ -125,11 +130,29 @@ class MainActivity : ComponentActivity() {
         var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
         var nicknames by remember { mutableStateOf(prefs.allNicknames()) }
         var renaming by remember { mutableStateOf<Sighting?>(null) }
+        var detailTarget by remember { mutableStateOf<Sighting?>(null) }
+        var details by remember { mutableStateOf<DeviceDetails?>(null) }
+        var detailError by remember { mutableStateOf<String?>(null) }
+        var hardwareRenaming by remember { mutableStateOf(false) }
+        var hardwareNameError by remember { mutableStateOf<String?>(null) }
         var showAll by remember { mutableStateOf(prefs.showAll) }
         var ringSupport by remember { mutableStateOf(prefs.allRingSupport()) }
         var lastSeenAt by remember { mutableLongStateOf(prefs.lastSeenAt) }
         var lastLoc by remember {
             mutableStateOf(if (prefs.hasLocation) prefs.lastLat to prefs.lastLon else null)
+        }
+
+        fun loadDetails(target: Sighting) {
+            activeDevice = target.address
+            activeAction = DeviceAction.DETAILS
+            details = null
+            detailError = null
+            ringer.readDetails(target.address) { result ->
+                activeDevice = null
+                activeAction = null
+                details = (result as? RingResult.Success)?.details
+                detailError = (result as? RingResult.Failure)?.reason
+            }
         }
 
         // Foreground discovery scan, live only while this screen is up.
@@ -150,6 +173,9 @@ class MainActivity : ComponentActivity() {
                     val heard = scanner.sightings.value[addr] ?: return@let
                     if (heard.seenAt > prefs.lastSeenAt) prefs.lastSeenAt = heard.seenAt
                 }
+                if (TrackerAlertService.isConnected(prefs.watchedAddress)) {
+                    prefs.lastSeenAt = now
+                }
                 lastSeenAt = prefs.lastSeenAt
                 lastLoc = if (prefs.hasLocation) prefs.lastLat to prefs.lastLon else null
                 alertsOn = prefs.watchEnabled
@@ -165,7 +191,8 @@ class MainActivity : ComponentActivity() {
                 .padding(horizontal = 20.dp)
                 .padding(top = 24.dp, bottom = 20.dp)
         ) {
-            val found = sightings.size
+            val found = sightings.size +
+                if (trackerAlarm.connected && trackerAlarm.address !in sightings) 1 else 0
             Header(
                 title = "TrackR Finder",
                 status = when {
@@ -173,6 +200,7 @@ class MainActivity : ComponentActivity() {
                     !granted -> "Permissions needed"
                     // The refusal is silent, so say so rather than claim to scan.
                     scanner.looksThrottled -> "Android is throttling scans — hold on"
+                    trackerAlarm.connected -> "1 connected · scanning"
                     found == 0 -> "Scanning…"
                     found == 1 -> "Scanning · 1 nearby"
                     else -> "Scanning · $found nearby"
@@ -234,7 +262,7 @@ class MainActivity : ComponentActivity() {
             // A running watch has already decided this, with confirmation and
             // radio state factored in; deciding it a second time here is how the
             // screen and the notification end up disagreeing.
-            val showingOutOfRange = w != null && (
+            val showingOutOfRange = w != null && !TrackerAlertService.isConnected(w) && (
                 serviceVerdict ?: (hadTimeToLook && heardMillisAgo > WatchService.OUT_OF_RANGE_MS)
             )
             if (showingOutOfRange) {
@@ -281,10 +309,18 @@ class MainActivity : ComponentActivity() {
 
             // Ringing doubles as the capability probe: only service discovery
             // reveals whether a device speaks Immediate Alert.
-            val doRing: (Sighting) -> Unit = { s ->
+            val doRing: (Sighting) -> Unit = ring@{ s ->
                 activeDevice = s.address
                 activeAction = DeviceAction.RING
                 status = "Connecting…"
+                if (s.address == trackerTarget) {
+                    TrackerAlertService.ring(s.address, stop = false) { error ->
+                        activeDevice = null
+                        activeAction = null
+                        status = error ?: "Ringing ${nicknames[s.address] ?: s.name}"
+                    }
+                    return@ring
+                }
                 ringer.ring(s.address) { result ->
                     activeDevice = null
                     activeAction = null
@@ -327,8 +363,13 @@ class MainActivity : ComponentActivity() {
             } else null
 
             // Watched tag first: it is the one the user came to look at.
-            val list = (listOfNotNull(staleWatched) + liveTags)
-                .sortedByDescending { it.address == w }
+            val staleTracker = trackerTarget?.takeIf { target -> liveTags.none { it.address == target } }?.let { target ->
+                Sighting(address = target, name = prefs.trackerAlertName ?: target, rssi = 0,
+                    seenAt = if (target == w) lastSeenAt else 0L, firstSeen = 0L)
+            }
+            val list = (listOfNotNull(staleWatched, staleTracker) + liveTags)
+                .distinctBy { it.address }
+                .sortedByDescending { it.address == w || it.address == trackerTarget }
             // Discovery order, never signal: with devices clustered within a
             // few dB any signal ordering reshuffles constantly. The dBm figure
             // on each row carries that information instead.
@@ -369,7 +410,25 @@ class MainActivity : ComponentActivity() {
                         isRinging = activeDevice == s.address && activeAction == DeviceAction.RING,
                         isCheckingBattery = activeDevice == s.address && activeAction == DeviceAction.BATTERY,
                         isBusy = activeDevice != null,
-                        stale = s === staleWatched,
+                        trackerAlarm = if (s.address == trackerTarget) trackerAlarm.takeIf { it.address == s.address }
+                            ?: TrackerAlertState(s.address, TrackerAlertPhase.CONNECTING,
+                                enabled = prefs.trackerAlertEnabled, message = "Starting tracker alarm…") else null,
+                        otherTrackerAlarm = trackerTarget != null && trackerTarget != s.address,
+                        onTrackerAlarm = { enabled ->
+                            runCatching {
+                                TrackerAlertService.setEnabled(this@MainActivity, s.address,
+                                    nicknames[s.address] ?: s.name, enabled)
+                            }.onFailure { status = it.message }
+                        },
+                        onRetryTrackerAlarm = {
+                            runCatching { TrackerAlertService.start(this@MainActivity) }
+                                .onFailure { status = it.message }
+                        },
+                        onDetails = {
+                            detailTarget = s
+                            loadDetails(s)
+                        },
+                        stale = s === staleWatched || s === staleTracker,
                         now = now,
                         onRing = { doRing(s) },
                         onCheckBattery = {
@@ -384,9 +443,17 @@ class MainActivity : ComponentActivity() {
                                 status = (result as? RingResult.Failure)?.reason
                             }
                         },
-                        onStopRing = {
+                        onStopRing = stop@{
                             activeDevice = s.address
                             activeAction = DeviceAction.STOP
+                            if (s.address == trackerTarget) {
+                                TrackerAlertService.ring(s.address, stop = true) { error ->
+                                    activeDevice = null
+                                    activeAction = null
+                                    status = error ?: "Ring stopped · tracker alarm remains on"
+                                }
+                                return@stop
+                            }
                             ringer.stopRinging(s.address) { result ->
                                 activeDevice = null
                                 activeAction = null
@@ -482,6 +549,48 @@ class MainActivity : ComponentActivity() {
                     renaming = null
                 },
             )
+        }
+
+        detailTarget?.let { target ->
+            if (hardwareRenaming) {
+                HardwareRenameDialog(
+                    current = details?.values?.get(DetailField.NAME) ?: target.name,
+                    busy = activeDevice != null,
+                    error = hardwareNameError,
+                    onDismiss = { hardwareRenaming = false },
+                    onSave = { name ->
+                        // A write may reach the device even if the response is lost.
+                        prefs.rememberDevice(target.address)
+                        activeDevice = target.address
+                        activeAction = DeviceAction.RENAME
+                        hardwareNameError = null
+                        ringer.renameDevice(target.address, name) { result ->
+                            activeDevice = null
+                            activeAction = null
+                            val verified = (result as? RingResult.Success)?.deviceName
+                            if (verified != null) {
+                                details = details?.copy(values = details!!.values + (DetailField.NAME to verified))
+                                hardwareRenaming = false
+                                status = "Device name verified. Its advertised name may update later."
+                            } else {
+                                hardwareNameError = (result as? RingResult.Failure)?.reason
+                                    ?: "The device name could not be verified."
+                            }
+                        }
+                    },
+                )
+            } else {
+                DeviceDetailsDialog(
+                    label = nicknames[target.address] ?: target.name,
+                    address = target.address,
+                    details = details,
+                    busy = activeDevice != null,
+                    error = detailError,
+                    onRefresh = { loadDetails(target) },
+                    onRename = { hardwareNameError = null; hardwareRenaming = true },
+                    onDismiss = { detailTarget = null },
+                )
+            }
         }
     }
 }
@@ -604,7 +713,7 @@ private fun LastSeenPanel(
             if (!alertsOn) {
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Alerts are off. This is still the last place it was heard.",
+                    "Phone alerts are off. This is still the last place it was heard.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -618,12 +727,12 @@ private fun LastSeenPanel(
                     }
                 }
                 OutlinedButton(onClick = onToggleAlerts, modifier = Modifier.weight(1f)) {
-                    Text(if (alertsOn) "Stop alerting" else "Resume alerts", maxLines = 1)
+                    Text(if (alertsOn) "Pause phone alert" else "Resume phone alert")
                 }
             }
             // Forget is the only destructive action, so it is the quietest.
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = onForget) { Text("Forget this tag", maxLines = 1) }
+                TextButton(onClick = onForget) { Text("Forget phone watch", maxLines = 1) }
             }
         }
     }
@@ -640,7 +749,7 @@ private fun RenameDialog(
     var text by remember { mutableStateOf(current) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Rename tracker") },
+        title = { Text("Phone nickname") },
         text = {
             Column {
                 OutlinedTextField(
@@ -664,8 +773,8 @@ private fun RenameDialog(
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "This label is stored on the phone. The tracker's own name "
-                        + "is read-only and is not changed.",
+                    "This label is stored only on this phone. To try changing the "
+                        + "tracker's own name, open Device details.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -677,7 +786,7 @@ private fun RenameDialog(
 }
 
 @Composable
-private fun DeviceCard(
+internal fun DeviceCard(
     sighting: Sighting,
     label: String,
     battery: Int?,
@@ -686,6 +795,11 @@ private fun DeviceCard(
     isRinging: Boolean,
     isCheckingBattery: Boolean,
     isBusy: Boolean,
+    trackerAlarm: TrackerAlertState?,
+    otherTrackerAlarm: Boolean,
+    onTrackerAlarm: (Boolean) -> Unit,
+    onRetryTrackerAlarm: () -> Unit,
+    onDetails: () -> Unit,
     now: Long,
     onRing: () -> Unit,
     onStopRing: () -> Unit,
@@ -729,7 +843,10 @@ private fun DeviceCard(
                 else -> "Last heard ${secondsSinceHeard / 86400} days ago"
             }
 
-            if (stale) {
+            if (trackerAlarm?.connected == true) {
+                Text("Connected · just now", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary)
+            } else if (stale) {
                 // An indeterminate bar, not a stale distance: showing the last
                 // known metres as though current would be a quiet lie.
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(10.dp))
@@ -762,9 +879,10 @@ private fun DeviceCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                itemVerticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     when {
@@ -773,59 +891,60 @@ private fun DeviceCard(
                         batteryChecked -> "Battery unavailable"
                         else -> "Battery not checked"
                     },
-                    modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                TextButton(onClick = onCheckBattery, enabled = !isBusy) {
+                TextButton(onClick = onCheckBattery, enabled = !isBusy && trackerAlarm == null) {
                     Text("Check battery")
                 }
             }
 
             Spacer(Modifier.height(12.dp))
-            // Two rows: four controls wrap badly at larger font scales.
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Button(
                     onClick = onRing,
-                    enabled = !isBusy,
+                    enabled = !isBusy && (trackerAlarm == null || trackerAlarm.phase == TrackerAlertPhase.READY && !trackerAlarm.busy),
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(
-                        if (isRinging) "Connecting…" else "Ring it",
+                        if (isRinging) "Connecting…" else "Ring",
                         maxLines = 1,
                     )
                 }
-                OutlinedButton(onClick = onStopRing, enabled = !isBusy, modifier = Modifier.weight(1f)) {
+                OutlinedButton(onClick = onStopRing,
+                    enabled = !isBusy && (trackerAlarm == null || trackerAlarm.phase == TrackerAlertPhase.READY && !trackerAlarm.busy),
+                    modifier = Modifier.weight(1f)) {
                     Text("Stop", maxLines = 1)
                 }
             }
             Spacer(Modifier.height(4.dp))
-            // A sentence plus a switch: the feature needs explaining, and the
-            // state shows itself rather than hiding in a verb.
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            AlertOptions(
+                phoneEnabled = isWatched,
+                onPhoneToggle = onWatch,
+                onTestPhoneAlert = onTestAlert,
+                tracker = trackerAlarm,
+                otherTrackerActive = otherTrackerAlarm,
+                enabled = !isBusy,
+                onTrackerToggle = onTrackerAlarm,
+                onRetry = onRetryTrackerAlarm,
+            )
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Switch(checked = isWatched, onCheckedChange = { onWatch() })
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    "Alert me if I leave this behind",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-            Row(
-                horizontalArrangement = Arrangement.End,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                // Whether an alert is noticeable when locked is worth checking
-                // before relying on it.
-                if (isWatched) {
-                    TextButton(onClick = onTestAlert) { Text("Test alert", maxLines = 1) }
+                TextButton(onClick = onRename) { Text("Nickname") }
+                TextButton(onClick = onDetails, enabled = !isBusy && trackerAlarm == null) {
+                    Text("Device details")
                 }
-                TextButton(onClick = onRename) { Text("Rename", maxLines = 1) }
+            }
+            if (trackerAlarm != null) {
+                Text("Turn off the tracker alarm to check battery or device details.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

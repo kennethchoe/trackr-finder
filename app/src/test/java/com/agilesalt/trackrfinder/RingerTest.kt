@@ -21,7 +21,7 @@ import org.robolectric.shadows.ShadowBluetoothGatt
 import java.util.UUID
 
 @Implements(BluetoothGatt::class)
-class BatteryGattShadow : ShadowBluetoothGatt() {
+open class BatteryGattShadow : ShadowBluetoothGatt() {
     var requestedRead: UUID? = null
 
     @Implementation
@@ -44,6 +44,7 @@ class RingerTest {
             .apply { isAccessible = true }.get(ringer) as BluetoothGattCallback
         val device = BluetoothAdapter.getDefaultAdapter().getRemoteDevice("AA:BB:CC:DD:EE:FF")
         val gatt = ShadowBluetoothGatt.newInstance(device)
+        Ringer::class.java.getDeclaredField("gatt").apply { isAccessible = true }.set(ringer, gatt)
         val alert = BluetoothGattCharacteristic(
             Trackr.ALERT_LEVEL, BluetoothGattCharacteristic.PROPERTY_WRITE,
             BluetoothGattCharacteristic.PERMISSION_WRITE,

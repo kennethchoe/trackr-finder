@@ -27,6 +27,30 @@ class Prefs(context: Context) {
         }
         set(v) = sp.edit().putBoolean(KEY_WATCH_ENABLED, v).apply()
 
+    var trackerAlertAddress: String?
+        get() = sp.getString("tracker_alert_addr", null)
+        set(v) = sp.edit().putString("tracker_alert_addr", v).apply()
+
+    var trackerAlertName: String?
+        get() = sp.getString("tracker_alert_name", null)
+        set(v) = sp.edit().putString("tracker_alert_name", v).apply()
+
+    var trackerAlertEnabled: Boolean
+        get() = sp.getBoolean("tracker_alert_enabled", false)
+        set(v) { sp.edit().putBoolean("tracker_alert_enabled", v).commit() }
+
+    /** Set before an enabling write; only cleared after a verified Off read. */
+    var trackerAlertNeedsDisarm: Boolean
+        get() = sp.getBoolean("tracker_alert_needs_disarm", false)
+        set(v) { sp.edit().putBoolean("tracker_alert_needs_disarm", v).commit() }
+
+    val trackerAlertNeedsService: Boolean
+        get() = trackerAlertAddress != null && (trackerAlertEnabled || trackerAlertNeedsDisarm)
+
+    fun clearTrackerAlert() = sp.edit()
+        .remove("tracker_alert_addr").remove("tracker_alert_name")
+        .remove("tracker_alert_enabled").remove("tracker_alert_needs_disarm").commit()
+
     /** Forget the tracked tag entirely, keeping nicknames and probe results. */
     fun forgetWatch() = sp.edit()
         .remove("addr").remove("name").remove("adv_name").remove(KEY_WATCH_ENABLED)
@@ -77,10 +101,7 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("show_all", false)
         set(v) = sp.edit().putBoolean("show_all", v).apply()
 
-    /**
-     * A local label keyed by MAC. The device's own GAP name (0x2A00) is
-     * read-only, so this never touches the tracker.
-     */
+    /** A local label keyed by MAC; separate from writing the device's GAP name. */
     fun nickname(address: String): String? = sp.getString(nickKey(address), null)
 
     fun setNickname(address: String, nick: String?) {
@@ -114,6 +135,16 @@ class Prefs(context: Context) {
         .filterKeys { it.startsWith(RING_PREFIX) }
         .mapNotNull { (k, v) -> (v as? Boolean)?.let { k.removePrefix(RING_PREFIX) to it } }
         .toMap()
+
+    /** Remember before writing a name, including writes whose response is lost. */
+    fun rememberDevice(address: String) {
+        val addresses = sp.getStringSet("known_devices", emptySet()).orEmpty() + address
+        sp.edit().putStringSet("known_devices", addresses).apply()
+    }
+
+    fun isRememberedDevice(address: String): Boolean =
+        address == watchedAddress || address == trackerAlertAddress || ringSupport(address) == true ||
+            sp.getStringSet("known_devices", emptySet()).orEmpty().contains(address)
 
     private fun ringKey(address: String) = "$RING_PREFIX$address"
 

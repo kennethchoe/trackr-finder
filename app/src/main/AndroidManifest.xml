@@ -65,6 +65,11 @@
             android:exported="false"
             android:foregroundServiceType="connectedDevice|location" />
 
+        <service
+            android:name=".TrackerAlertService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true"

@@ -10,7 +10,10 @@ import kotlin.math.roundToInt
  * Protocol confirmed against github.com/danielweidman/TrackR-Web-Bluetooth-API
  */
 object Trackr {
+    val GENERIC_ACCESS: UUID = uuid16("1800")
+    val DEVICE_NAME: UUID = uuid16("2A00")
     val IMMEDIATE_ALERT: UUID = uuid16("1802")
+    val LINK_LOSS: UUID = uuid16("1803")
     val ALERT_LEVEL: UUID = uuid16("2A06")
     val BATTERY_SERVICE: UUID = uuid16("180F")
     val BATTERY_LEVEL: UUID = uuid16("2A19")
@@ -47,6 +50,9 @@ enum class MatchReason {
 
     /** Name looks like a known tag family. Probably ringable. */
     KNOWN_NAME,
+
+    /** Kept by address so a renamed tracker remains discoverable. */
+    SAVED_DEVICE,
 
     /** Only visible because the user asked to see everything. */
     SHOW_ALL,

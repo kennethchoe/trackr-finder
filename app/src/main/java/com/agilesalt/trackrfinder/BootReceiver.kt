@@ -22,6 +22,10 @@ class BootReceiver : BroadcastReceiver() {
         ) return
 
         val prefs = Prefs(context)
+        if (prefs.trackerAlertNeedsService) {
+            runCatching { TrackerAlertService.start(context) }
+                .onFailure { Log.w(TAG, "boot: could not restart tracker alarm", it) }
+        }
         if (prefs.watchedAddress == null || !prefs.watchEnabled) {
             Log.i(TAG, "boot: no watch armed, nothing to restart")
             return

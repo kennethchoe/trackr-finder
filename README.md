@@ -14,10 +14,12 @@ The Pixel is not a proprietary device. It implements the Bluetooth SIG
 |---|---|---|---|
 | Ring | `0x1802` Immediate Alert | `0x2A06` Alert Level | `0x01` mild / `0x02` high |
 | Silence | `0x1802` | `0x2A06` | `0x00` |
+| Tracker alarm on / off | `0x1803` Link Loss | `0x2A06` Alert Level | `0x02` / `0x00`, verified by reading back |
 | Battery | `0x180F` Battery | `0x2A19` Battery Level | read, 0–100 |
 
-Devices advertise with a name beginning `tkr`. There is **no pairing, bonding, or
-authentication** — the Find Me profile is unauthenticated by design.
+Devices advertise with a name beginning `tkr`. Ringing through Immediate Alert
+works without pairing. The tested tracker's **Link Loss** setting requires
+pairing; the tracker-alarm mode pairs with Android before configuring it.
 
 Protocol confirmed against Daniel Weidman's Web Bluetooth proof-of-concept:
 <https://github.com/danielweidman/TrackR-Web-Bluetooth-API>
@@ -33,17 +35,28 @@ authenticated against a key provisioned to the owner's account.
 ## Features
 
 - Live scan with an RSSI proximity bar and a rough distance estimate
-- **Ring it** / **Stop** — one-byte GATT writes
+- **Ring** / **Stop** — one-byte GATT writes. Ring always requests High alert;
+  the tested TrackR Pixel sounds the same for Mild and High.
 - **Check battery** without ringing, plus a battery read during ring/stop
   connections. Missing, failed, or invalid readings display **Battery unavailable**;
   only values from 0 through 100 are shown as percentages.
-- **Rename** — a local nickname per device, keyed by MAC. Useful because every
+- **Nickname** — a local nickname per device, keyed by MAC. Useful because every
   Pixel advertises as plain `tkr`, so they are otherwise indistinguishable
+- **Device details** — reads the device name, manufacturer, model, firmware,
+  software, transmit power, appearance, and preferred connection timings.
+  Unsupported or failed reads show as unavailable; an interrupted read retains
+  the fields already received.
+- **Rename device**, inside Device details — attempts to write a short hardware
+  name and verifies it by reading it back. This is separate from the phone
+  nickname. Saved device addresses keep renamed trackers discoverable.
 - **Show all Bluetooth devices** — a diagnostic drawer listing every advertiser,
   with a "Try ringing" probe. Devices proven ringable are promoted to full cards
-- **"Alert me if I leave this behind"** — a foreground service watches one
-  tracker, notifies you when it drops out of range, and records the last GPS
-  coordinate where it was heard
+- **Phone alert** — watches one tracker, notifies this phone when it stays out
+  of range, and records a recent, accurate phone position when available.
+- **Tracker alarm** — pairs with one tracker and keeps a Bluetooth connection
+  open so the **tracker itself beeps** when that connection is lost. The two
+  switches appear under **When we get separated** and can be used together.
+  Separate notifications make it clear which mode is running or being stopped.
 
 ## What it cannot do
 
@@ -79,6 +92,45 @@ The app does not request a fresh GPS fix, so a position may be unavailable even
 with location permission. A later sighting cannot reuse an unrelated old map pin;
 coordinates saved by older builds without a fix timestamp are also hidden.
 
+**Hardware name writes are not guaranteed.** In a September 2026 computer-side
+test, the nearby `tkr` tracker exposed Device Name as readable and writable, but
+rejected a write of `tkr-test` with `Not Authorized`. A pairing attempt failed
+with `AuthenticationFailed`, and a subsequent scan still showed `tkr`. Pairing
+later succeeded for the Link Loss test; hardware renaming has not been retested
+after that successful pairing. No successful hardware rename or persistence across a power cycle was established.
+The app therefore reports rejected or unverified writes as failures. Even a
+verified write may not immediately change advertisements or survive a restart.
+Names are limited to 20 UTF-8 bytes to fit a single minimum-MTU write.
+
+## Tracker alarm behavior
+
+Enable **Tracker alarm** with the tag nearby and accept Android's pairing request
+if shown. **Ready** means the tracker has read back High (`2`) and the app is
+holding the connection. Connecting, pairing, reconnecting and errors are shown
+explicitly. A connected tag may stop advertising; its held connection counts as
+presence for the phone alert and its card stays visible without a stale distance.
+
+The connected-device foreground service reconnects after loss and verifies the
+setting again. Ring and Stop use that same connection; **Stop** stops an immediate
+ring and leaves the tracker alarm enabled. Battery and device-detail reads require
+turning the tracker alarm off first. One tracker can use this mode at a time,
+independently of the tracker selected for phone alerts.
+
+Turning the switch off writes Off (`0`) and requires an exact read-back before
+closing the connection and clearing the saved mode. If the tag is out of range,
+the app keeps **Turning off** visible and retries when it can connect. An
+unconfirmed enabling write is saved before sending, so a process restart or reboot
+can finish an outstanding Off request. A Bluetooth interruption or an Android
+process termination can also break the link and trigger the tag; the connection
+is maintained by a foreground service, not a guarantee that Android never stops it.
+
+**Hardware test, September 2026:** the TrackR Pixel first refused the Link Loss
+read with `Not paired`. Pairing with the Linux computer then succeeded. The tag
+accepted High and returned `2`. A deliberate disconnect stayed quiet, while
+carrying it out of range caused the tag to sound its alarm. Reconnection and
+writing Off returned `0`. This verifies the hardware behavior; the new Android
+background mode still needs an end-to-end test on the Pixel phone.
+
 ## Install
 
 No release APK is published yet. Build it yourself (below), or wait for the
@@ -86,8 +138,11 @@ F-Droid listing.
 
 ## What has actually been tested
 
-Verified end-to-end on **one** device: a Galaxy S25 Ultra (SM-S938U), Android 16
-/ API 36, One UI.
+The original upstream app reported end-to-end verification on a Galaxy S25 Ultra
+(SM-S938U), Android 16 / API 36, One UI. Those original results are listed below.
+This fork's new tracker-alarm mode has automated coverage and the computer-side
+hardware test above; phone pairing, screen-off reconnection and reboot recovery
+still require a physical Android test.
 
 | Behaviour | Status |
 |---|---|
@@ -102,7 +157,7 @@ Verified end-to-end on **one** device: a Galaxy S25 Ultra (SM-S938U), Android 16
 
 **Not tested at all:**
 
-- Any device other than the one above.
+- The new tracker-alarm service on a physical Android phone.
 - **Android 8 through 11.** `minSdk` is 26, but those versions take a different
   code path: `BLUETOOTH_SCAN` does not exist before Android 12, so scanning is
   gated on location permission instead, and the foreground-service rules differ.
@@ -139,7 +194,7 @@ Background usage limits** and make sure the app is not in *Sleeping apps*.
 Other vendors have equivalents — see <https://dontkillmyapp.com>.
 
 A leave-behind alert that has silently stopped is worse than none, so the
-in-app **Test alert** action exists to check it is still working without having
+in-app **Test phone alert** action exists to check it is still working without having
 to lose something first.
 
 ## Build
@@ -157,7 +212,14 @@ Requires JDK 17+, Android SDK 36. Tested on a Galaxy S25 Ultra (Android 16).
 
 Run the regression tests with `./gradlew testDebugUnitTest`. These use Robolectric
 to check Bluetooth write results, last-seen location validation, and persistent
-notification Stop behavior. They do not replace testing on a physical phone.
+notification Stop behavior, plus device details, verified renaming, saved-device
+discovery, ring commands, tracker-alarm pairing, verified enable/disable,
+reconnection, pending cleanup, independent alert modes, and the two-switch UI.
+Run the dialog interaction tests on a connected Android
+device or emulator with `./gradlew connectedDebugAndroidTest`. The Android UI-test
+APK compiles, but those tests have not yet completed on a device: the JVM
+text-field simulation did not settle and the local Android emulator crashed
+during startup. These checks do not replace testing Bluetooth on a physical phone.
 
 ## Not affiliated with TrackR
 
