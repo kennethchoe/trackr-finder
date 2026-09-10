@@ -30,7 +30,7 @@ class Prefs(context: Context) {
     /** Forget the tracked tag entirely, keeping nicknames and probe results. */
     fun forgetWatch() = sp.edit()
         .remove("addr").remove("name").remove("adv_name").remove(KEY_WATCH_ENABLED)
-        .remove("seen_at").remove("lat").remove("lon")
+        .remove("seen_at").remove("lat").remove("lon").remove("location_at")
         .apply()
 
     /**
@@ -54,7 +54,23 @@ class Prefs(context: Context) {
         get() = Double.fromBits(sp.getLong("lon", Double.NaN.toRawBits()))
         set(v) = sp.edit().putLong("lon", v.toRawBits()).apply()
 
-    val hasLocation: Boolean get() = !lastLat.isNaN() && !lastLon.isNaN()
+    // Old installations have no fix timestamp, so their unverified coordinates
+    // must not be presented as a position belonging to a new sighting.
+    val hasLocation: Boolean
+        get() = lastLat.isFinite() && lastLon.isFinite() &&
+            LastSeenLocation.matchesSighting(sp.getLong("location_at", 0L), lastSeenAt)
+
+    fun saveLocation(latitude: Double, longitude: Double, recordedAt: Long) {
+        sp.edit()
+            .putLong("lat", latitude.toRawBits())
+            .putLong("lon", longitude.toRawBits())
+            .putLong("location_at", recordedAt)
+            .apply()
+    }
+
+    fun clearLocation() {
+        sp.edit().remove("lat").remove("lon").remove("location_at").apply()
+    }
 
     /** Persisted so it survives rotation, theme changes and process death. */
     var showAll: Boolean

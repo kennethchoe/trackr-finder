@@ -34,7 +34,9 @@ authenticated against a key provisioned to the owner's account.
 
 - Live scan with an RSSI proximity bar and a rough distance estimate
 - **Ring it** / **Stop** — one-byte GATT writes
-- Battery percentage, read opportunistically during the ring connection
+- **Check battery** without ringing, plus a battery read during ring/stop
+  connections. Missing, failed, or invalid readings display **Battery unavailable**;
+  only values from 0 through 100 are shown as percentages.
 - **Rename** — a local nickname per device, keyed by MAC. Useful because every
   Pixel advertises as plain `tkr`, so they are otherwise indistinguishable
 - **Show all Bluetooth devices** — a diagnostic drawer listing every advertiser,
@@ -69,6 +71,13 @@ MAC address — which is why you must pick a device before it can watch it.
 **No `ACCESS_BACKGROUND_LOCATION`.** A foreground service declaring the
 `location` type may access location without that permission, provided the
 service starts while the app is visible. The app is built that way deliberately.
+
+Last-seen positions use cached phone locations. A fix must be at most 10 seconds
+old, have reported accuracy of 50 m or better, and fall within 10 seconds of the
+tracker sighting. These are conservative app thresholds, not accuracy guarantees.
+The app does not request a fresh GPS fix, so a position may be unavailable even
+with location permission. A later sighting cannot reuse an unrelated old map pin;
+coordinates saved by older builds without a fix timestamp are also hidden.
 
 ## Install
 
@@ -145,6 +154,10 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 Requires JDK 17+, Android SDK 36. Tested on a Galaxy S25 Ultra (Android 16).
+
+Run the regression tests with `./gradlew testDebugUnitTest`. These use Robolectric
+to check Bluetooth write results, last-seen location validation, and persistent
+notification Stop behavior. They do not replace testing on a physical phone.
 
 ## Not affiliated with TrackR
 
