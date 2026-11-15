@@ -1,0 +1,5 @@
+- Smaller, faster release build (R8 shrinking enabled).
+- Check battery level without ringing the tag.
+- More reliable ring/alert writes and correct Bluetooth error reporting.
+- Better last-seen locations and live "last heard" labels.
+- Stopping the watch service now stays stopped.
